@@ -123,10 +123,11 @@ def show_rules(editor):
 
 def modify_element(editor, elems):
     """
-    交互式修改循环。
+    交互式修改循环。支持两种模式：
 
-    用户输入标注文本中的 [N] 编号 → 显示当前值和类型 →
-    输入新文本 → 通过 editor.add_change() 暂存修改。
+    - 输入编号（如 2）→ 修改单个元素
+    - 输入名称/文本（如 M1）→ 修改当前 RULE 内所有文本匹配的元素
+
     输入 0 或 Ctrl+C 返回上级菜单。
     """
     if not elems:
@@ -134,35 +135,90 @@ def modify_element(editor, elems):
         return
 
     while True:
-        sel_idx, elem = _select_from_list(
-            elems,
-            key_fn=lambda e: e.text,
-            prompt='修改元素 (输入标注 <<N>>)',
-        )
-        if sel_idx < 0:
-            break
-
-        print(f'  类型: {elem.element_type}')
-        print(f'  当前值: {elem.text!r}')
-
         try:
-            new_text = input('  新值: ').strip()
+            raw = input('修改元素 (输入标注 <<N>> 或名称): ').strip()
         except (EOFError, KeyboardInterrupt):
             print()
             break
 
-        if not new_text or new_text == elem.text:
-            print('  (无变化)')
+        if not raw:
             continue
 
-        editor.add_change(elem, new_text)
-        # 立即刷新标注视图，显示修改后的状态
-        print(f'  [已暂存] {elem.text!r} → {new_text!r}')
+        # ---- 模式 1: 数字 → 按编号选择单个元素 ----
+        try:
+            idx = int(raw) - 1
+            if idx == -1:                      # 用户输入 0
+                break
+            if 0 <= idx < len(elems):
+                _modify_single(editor, elems[idx])
+                continue
+            print(f'  超出范围 (1-{len(elems)})')
+            continue
+        except ValueError:
+            pass                              # 非数字，走名称匹配
+
+        # ---- 模式 2: 字符串 → 匹配所有同名元素 ----
+        _modify_by_name(editor, elems, raw)
+
+
+def _modify_single(editor, elem):
+    """修改单个元素。"""
+    print(f'  类型: {elem.element_type}')
+    print(f'  当前值: {elem.text!r}')
+
+    try:
+        new_text = input('  新值: ').strip()
+    except (EOFError, KeyboardInterrupt):
         print()
-        print(editor.annotated_text(elem.rule_name))
-        _divider()
-        print(editor.annotated_legend(elem.rule_name))
-        _divider()
+        return
+
+    if not new_text or new_text == elem.text:
+        print('  (无变化)')
+        return
+
+    editor.add_change(elem, new_text)
+    _show_current_state(editor, elem)
+
+
+def _modify_by_name(editor, elems, name):
+    """修改当前 RULE 内所有文本匹配的元素。"""
+    name = name.strip('"')
+    matched = [e for e in elems if e.text == name]
+
+    if not matched:
+        print(f'  未找到文本为 {name!r} 的元素')
+        return
+
+    print(f'  找到 {len(matched)} 个匹配元素:')
+    for i, e in enumerate(matched):
+        print(f'    <<{elems.index(e) + 1}>> {e.element_type}  (第 {e.line} 行)')
+    print(f'  当前值: {name!r}')
+
+    try:
+        new_text = input('  新值: ').strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return
+
+    if not new_text or new_text == name:
+        print('  (无变化)')
+        return
+
+    for e in matched:
+        editor.add_change(e, new_text)
+    print(f'  [已暂存] {name!r} → {new_text!r}  ({len(matched)} 处)')
+    # 用第一个元素的 rule_name 刷新视图
+    _show_current_state(editor, matched[0])
+
+
+def _show_current_state(editor, elem):
+    """刷新当前 RULE 的标注视图和编号说明表。"""
+    rule = elem.rule_name
+    print()
+    print(editor.annotated_text(rule))
+    _divider()
+    print(editor.annotated_legend(rule))
+    _divider()
 
 
 def confirm_save(editor):
