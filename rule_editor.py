@@ -25,7 +25,7 @@ from typing import Optional, List, Dict, Any, Callable
 _PROJECT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(_PROJECT_DIR, 'grammar', 'gen'))
 
-from antlr4 import FileStream, CommonTokenStream
+from antlr4 import InputStream, CommonTokenStream
 from antlr4.error.ErrorListener import ErrorListener
 from PVRSLexer import PVRSLexer
 from PVRSParser import PVRSParser as _PVRSParser
@@ -202,11 +202,16 @@ class RuleEditor:
 
     def __init__(self, filepath: str):
         self.filepath = filepath
-        with open(filepath, 'r', encoding='utf-8', errors='replace') as f:
-            self.source = f.read()
+        with open(filepath, 'r', encoding='utf-8', errors='replace', newline='') as f:
+            raw = f.read()
+        # Detect original line ending style, preserve raw for backup
+        self._raw = raw
+        self._crlf = '\r\n' in raw
+        # Normalize CRLF -> LF so char offsets are consistent
+        self.source = raw.replace('\r\n', '\n')
 
-        # Parse with error collection
-        input_stream = FileStream(filepath, encoding='utf-8', errors='replace')
+        # Parse: use InputStream with normalized text so offsets match self.source
+        input_stream = InputStream(self.source)
         lexer = PVRSLexer(input_stream)
         stream = CommonTokenStream(lexer)
         parser = _PVRSParser(stream)
@@ -328,12 +333,16 @@ class RuleEditor:
         """
         if backup and output_path is None:
             bak_path = self.filepath + '.bak'
-            with open(bak_path, 'w', encoding='utf-8') as f:
-                f.write(self.source)
+            with open(bak_path, 'w', encoding='utf-8', newline='') as f:
+                f.write(self._raw)
+
+        text = self.modified_text()
+        if self._crlf:
+            text = text.replace('\n', '\r\n')
 
         target = output_path or self.filepath
-        with open(target, 'w', encoding='utf-8') as f:
-            f.write(self.modified_text())
+        with open(target, 'w', encoding='utf-8', newline='') as f:
+            f.write(text)
 
 
 # ============================================================
