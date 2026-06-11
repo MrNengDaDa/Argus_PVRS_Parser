@@ -528,25 +528,33 @@ class RuleEditor:
 
         参数
         ----
-        output_path : str – 输出路径，None 表示覆盖原文件
-        backup     : bool – True 时创建 .bak 备份（仅当覆盖原文件时）
+        output_path : str – 输出路径。None 或空字符串表示覆盖原文件，
+                            否则写入指定路径。
+        backup     : bool – True 时创建带时间戳的 .bak 备份。
+                            备份文件命名：<原文件名>.<时间戳>.bak
+                            仅当覆盖原文件时才创建备份。
 
         换行符处理
         ----------
         内部统一使用 LF。保存时如果原始文件是 CRLF，自动恢复。
         open 使用 newline='' 防止 Python 做额外的换行符转换。
         """
-        # 备份原始内容（含原始换行符）
-        if backup and output_path is None:
-            bak_path = self.filepath + '.bak'
-            with open(bak_path, 'w', encoding='utf-8', newline='') as f:
-                f.write(self._raw)
+        from datetime import datetime
 
         text = self.modified_text()
         if self._crlf:
             text = text.replace('\n', '\r\n')
 
+        # 确定输出路径
         target = output_path or self.filepath
+
+        # 覆盖原文件时创建带时间戳的备份
+        if backup and target == self.filepath:
+            ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+            bak_path = f'{self.filepath}.{ts}.bak'
+            with open(bak_path, 'w', encoding='utf-8', newline='') as f:
+                f.write(self._raw)
+
         with open(target, 'w', encoding='utf-8', newline='') as f:
             f.write(text)
 

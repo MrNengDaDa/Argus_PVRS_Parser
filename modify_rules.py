@@ -25,6 +25,7 @@
 
 import sys
 import os
+import glob
 from rule_editor import RuleEditor, Element, get_element_types
 
 
@@ -221,18 +222,18 @@ def _show_current_state(editor, elem):
     _divider()
 
 
-def confirm_save(editor):
+def confirm_save(editor, default_path):
     """
-    显示所有暂存修改的摘要，询问用户是否确认保存。
+    显示所有暂存修改的摘要，询问用户是否确认保存及输出路径。
 
     返回
     ----
-    bool – True 表示用户确认写入
+    str – 输出路径（空字符串 = 覆盖原文件），None = 放弃
     """
     pending = editor.pending_changes()
     if not pending:
         print('没有需要保存的修改。')
-        return False
+        return None
 
     print(f'\n共 {len(pending)} 项修改待保存：')
     _divider()
@@ -245,9 +246,20 @@ def confirm_save(editor):
         ans = input('确认保存到文件? (y/n): ').strip().lower()
     except (EOFError, KeyboardInterrupt):
         print()
-        return False
+        return None
 
-    return ans in ('y', 'yes')
+    if ans not in ('y', 'yes'):
+        return None
+
+    # 询问输出文件名，留空 = 覆盖原文件
+    msg = f'输出文件 (回车覆盖原文: {default_path}): '
+    try:
+        output = input(msg).strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return None
+
+    return output if output else default_path
 
 
 # ============================================================
@@ -325,10 +337,15 @@ def main():
             break
 
     # ---- 第三步：确认并保存 ----
-    if confirm_save(editor):
-        editor.save()
-        print(f'已保存: {filepath}')
-        print(f'备份: {filepath}.bak')
+    output_path = confirm_save(editor, filepath)
+    if output_path is not None:
+        editor.save(output_path=output_path if output_path != filepath else None)
+        print(f'已保存: {output_path or filepath}')
+        if output_path == filepath or not output_path:
+            # 覆盖原文件时会创建时间戳备份
+            backups = sorted(glob.glob(f'{filepath}.*.bak'))
+            if backups:
+                print(f'备份: {backups[-1]}')
     else:
         print('修改已丢弃。')
 
