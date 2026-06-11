@@ -379,6 +379,57 @@ class RuleEditor:
         start, _line, stop = bounds
         return self.source[start:stop + 1]
 
+    def annotated_text(self, rule_name: str) -> str:
+        """
+        返回带有内嵌编号 [N] 标注的 RULE 原文视图。
+
+        每个可修改元素前插入 [N] 标记，N 对应元素在此 RULE 内
+        的全局编号。后续可配合编号说明表使用，方便定位元素位置。
+
+        实现：从右往左插入标记，保证前面的插入不影响后面偏移量。
+        """
+        elems = self.elements_by_rule(rule_name)
+        if not elems:
+            return self.rule_text(rule_name)
+
+        text = self.rule_text(rule_name)
+        # 按 char_start 降序 → 从后往前插入标记
+        for i, e in enumerate(reversed(elems)):
+            global_idx = len(elems) - i
+            # 将 char_start/stop 从 source 偏移转换为 rule_text 内的偏移
+            bounds = self._rule_bounds.get(rule_name.strip('"'))
+            if bounds is None:
+                continue
+            rule_start = bounds[0]
+            local_start = e.char_start - rule_start
+            # 插入 [N]
+            text = (text[:local_start] + f'[{global_idx}]' +
+                    text[local_start:])
+        return text
+
+    def annotated_legend(self, rule_name: str) -> str:
+        """
+        返回与 annotated_text 配套的编号说明表。
+
+        格式示例：
+            --- 编号说明 ---
+            [1] layerRef       M1
+            [2] constraint     < 0.5
+             ...
+        """
+        elems = self.elements_by_rule(rule_name)
+        if not elems:
+            return ''
+        max_type = max(len(e.element_type) for e in elems)
+        lines = [f'--- 编号说明（{len(elems)} 个）---']
+        for i, e in enumerate(elems, 1):
+            marker = ' [已修改]' if e.modified else ''
+            lines.append(
+                f'  [{i}] {e.element_type:<{max_type}}  '
+                f'{e.text}{marker}  (第 {e.line} 行)'
+            )
+        return '\n'.join(lines)
+
     def rule_names(self) -> List[str]:
         """文件中所有 RULE 名称列表（按出现顺序）。"""
         seen = set()

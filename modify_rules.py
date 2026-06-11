@@ -25,7 +25,7 @@
 
 import sys
 import os
-from rule_editor import RuleEditor, Element, get_element_types, iter_elements_by_rule
+from rule_editor import RuleEditor, Element, get_element_types
 
 
 # ============================================================
@@ -109,75 +109,39 @@ def show_rules(editor):
     if idx < 0:
         return None
 
-    # 输出该 RULE 的完整原始文本
+    # 输出标注后的 RULE 文本 + 编号说明表
     rule_name = chosen['name']
-    print(f'\n  RULE {rule_name} 原文:')
+    count = chosen['count']
+    print(f'\n  RULE {rule_name} 原文标注 (共 {count} 个可修改元素):')
     _divider()
-    print(editor.rule_text(rule_name))
+    print(editor.annotated_text(rule_name))
+    _divider()
+    print(editor.annotated_legend(rule_name))
     _divider()
     return rule_name
 
 
-def show_elements(editor, rule_name):
-    """
-    展示某个 RULE 内的所有可修改元素，按类型分组。
-
-    每个元素分配一个全局编号，方便用户在 modify_element() 中
-    按编号选择，无需关心类型。
-
-    返回
-    ----
-    (grouped, flat) – grouped 是 {type: [Element]} 字典，
-    flat 是 [(header_str, None) | (Element, num)] 混合列表
-    """
-    grouped = iter_elements_by_rule(editor.elements, rule_name)
-    if not grouped:
-        print(f'RULE {rule_name} 中没有可修改元素。')
-        return None, []
-
-    # 构建混合展示列表：类型标题行 + 元素行
-    flat: list = []
-    total = 0
-    for etype in sorted(grouped.keys()):
-        elems = grouped[etype]
-        flat.append((f'--- {etype}（{len(elems)} 个）---', None))
-        for e in elems:
-            total += 1
-            flat.append((e, total))
-
-    # 渲染输出：标题前加空行，元素前显示编号和修改标记
-    for item, idx_or_none in flat:
-        if idx_or_none is None:
-            print(f'\n{item}')
-        else:
-            elem, num = item, idx_or_none
-            marker = ' [已修改]' if elem.modified else ''
-            print(f'  [{num}] {elem.text!r}{marker}  (第 {elem.line} 行)')
-    _divider()
-
-    return grouped, flat
-
-
-def modify_element(editor, grouped, flat):
+def modify_element(editor, elems):
     """
     交互式修改循环。
 
-    用户输入元素编号 → 显示当前值和类型 → 输入新文本 →
-    通过 editor.add_change() 暂存修改（不立即写入磁盘）。
+    用户输入标注文本中的 [N] 编号 → 显示当前值和类型 →
+    输入新文本 → 通过 editor.add_change() 暂存修改。
     输入 0 或 Ctrl+C 返回上级菜单。
     """
+    if not elems:
+        print('该 RULE 中没有可修改元素。')
+        return
+
     while True:
-        elems_only = [(e, n) for e, n in flat if n is not None]
-        # 复用通用选择函数，支持按序号选择
-        sel_idx, sel_pair = _select_from_list(
-            elems_only,
-            key_fn=lambda p: str(p[1]),
-            prompt='修改元素',
+        sel_idx, elem = _select_from_list(
+            elems,
+            key_fn=lambda e: e.text,
+            prompt='修改元素 (输入标注 [N])',
         )
         if sel_idx < 0:
             break
 
-        elem, _ = sel_pair
         print(f'  类型: {elem.element_type}')
         print(f'  当前值: {elem.text!r}')
 
@@ -192,7 +156,13 @@ def modify_element(editor, grouped, flat):
             continue
 
         editor.add_change(elem, new_text)
+        # 立即刷新标注视图，显示修改后的状态
         print(f'  [已暂存] {elem.text!r} → {new_text!r}')
+        print()
+        print(editor.annotated_text(elem.rule_name))
+        _divider()
+        print(editor.annotated_legend(elem.rule_name))
+        _divider()
 
 
 def confirm_save(editor):
@@ -285,12 +255,9 @@ def main():
             print('退出。')
             break
 
-        print(f'\n===== RULE {rule_name} =====')
-        grouped, flat = show_elements(editor, rule_name)
-        if grouped is None:
-            continue
-
-        modify_element(editor, grouped, flat)
+        # 标注视图已展示编号和类型，直接进入修改循环
+        elems = editor.elements_by_rule(rule_name)
+        modify_element(editor, elems)
 
         # 询问是否继续修改其他 RULE
         try:
