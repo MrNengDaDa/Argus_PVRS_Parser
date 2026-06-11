@@ -10,7 +10,8 @@
 --------
     1. 使用 ANTLR4 解析 PVRS 文件，如有语法错误立即报告
     2. 列出所有 RULE 块及其可修改元素概况
-    3. 选择 RULE → 按类型分组展示可修改元素
+    3. 选择 RULE（按序号或直接输入名称）→ 显示该 RULE 完整文本
+       → 按类型分组展示可修改元素
     4. 选择元素 → 输入新文本值
     5. 可继续修改其他元素，最终确认保存
 
@@ -36,34 +37,42 @@ def _divider(char='-', width=50):
     print(char * width)
 
 
-def _select_from_list(items, prompt='Select'):
+def _select_from_list(items, key_fn, prompt='选择'):
     """
-    让用户从编号列表中选择一项。
+    让用户从列表中按序号或名称选择一项。
 
-    参数
-    ----
-    items  : list – 待选列表
-    prompt : str  – 提示文字
+    支持两种输入方式：
+        - 数字：按序号选择（1 起始）
+        - 字符串：按 key_fn(item) 精确匹配名称
 
-    返回
-    ----
-    int – 选中的索引（从 0 开始），-1 表示用户输入 0（返回）或 Ctrl+C
+    返回 (index, item) 元组，(-1, None) 表示返回/退出。
     """
     while True:
         try:
-            raw = input(f'{prompt} (0=返回): ').strip()
+            raw = input(f'{prompt} (序号/名称, 0=返回): ').strip()
             if not raw:
                 continue
-            idx = int(raw) - 1            # 用户看到的是 1 起始编号
-            if idx == -1:
-                return -1                 # 用户输入了 0
-            if 0 <= idx < len(items):
-                return idx
-            print(f'  超出范围 (1-{len(items)})')
-        except ValueError:
-            print('  请输入数字')
+            # 尝试按数字解析
+            try:
+                idx = int(raw) - 1
+            except ValueError:
+                idx = None
+
+            if idx is not None:
+                if idx == -1:
+                    return -1, None
+                if 0 <= idx < len(items):
+                    return idx, items[idx]
+                print(f'  超出范围 (1-{len(items)})')
+            else:
+                # 按名称匹配
+                name = raw.strip('"')
+                for i, item in enumerate(items):
+                    if key_fn(item) == name:
+                        return i, item
+                print(f'  未找到名称: {raw!r}')
         except (EOFError, KeyboardInterrupt):
-            return -1
+            return -1, None
 
 
 # ============================================================
@@ -72,7 +81,8 @@ def _select_from_list(items, prompt='Select'):
 
 def show_rules(editor):
     """
-    展示所有 RULE 块列表，让用户选择一个。
+    展示所有 RULE 块列表，用户可按序号或名称选择。
+    选中后输出该 RULE 的完整原文。
 
     返回
     ----
@@ -91,10 +101,21 @@ def show_rules(editor):
               f'(第 {s["line"]} 行, {s["count"]} 个元素: {types_str})')
     _divider()
 
-    idx = _select_from_list(summaries, '选择 RULE')
+    idx, chosen = _select_from_list(
+        summaries,
+        key_fn=lambda s: s['name'].strip('"'),
+        prompt='选择 RULE',
+    )
     if idx < 0:
         return None
-    return summaries[idx]['name']
+
+    # 输出该 RULE 的完整原始文本
+    rule_name = chosen['name']
+    print(f'\n  RULE {rule_name} 原文:')
+    _divider()
+    print(editor.rule_text(rule_name))
+    _divider()
+    return rule_name
 
 
 def show_elements(editor, rule_name):
@@ -146,13 +167,17 @@ def modify_element(editor, grouped, flat):
     输入 0 或 Ctrl+C 返回上级菜单。
     """
     while True:
-        # 从 flat 中提取纯元素列表（去掉标题行）
         elems_only = [(e, n) for e, n in flat if n is not None]
-        idx = _select_from_list(elems_only, '修改元素')
-        if idx < 0:
+        # 复用通用选择函数，支持按序号选择
+        sel_idx, sel_pair = _select_from_list(
+            elems_only,
+            key_fn=lambda p: str(p[1]),
+            prompt='修改元素',
+        )
+        if sel_idx < 0:
             break
 
-        elem, _ = elems_only[idx]
+        elem, _ = sel_pair
         print(f'  类型: {elem.element_type}')
         print(f'  当前值: {elem.text!r}')
 
@@ -213,7 +238,6 @@ def main():
         3. 主循环：选 RULE → 浏览元素 → 修改 → 继续或结束
         4. 退出时确认保存（自动创建 .bak 备份）
     """
-    # ---- 参数检查 ----
     if len(sys.argv) < 2:
         print(f'用法: python {sys.argv[0]} <pvrs_file>')
         print()

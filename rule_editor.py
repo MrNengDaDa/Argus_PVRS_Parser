@@ -155,6 +155,7 @@ class _RuleElementCollector(PVRSParserVisitor):
     def __init__(self, source_text: str):
         self.source = source_text                   # LF 归一化后的源文本
         self.elements: List[Element] = []           # 收集到的元素列表
+        self._rule_bounds: Dict[str, tuple] = {}    # {name: (start, line, stop)}
 
     # ---- 辅助方法 ----
 
@@ -205,7 +206,16 @@ class _RuleElementCollector(PVRSParserVisitor):
     # 叶子节点返回 None 停止递归；非叶子节点调用 visitChildren 继续。
 
     def visitRule_statement(self, ctx):
-        """RULE 块入口：递归进入 body，不收集 RULE 本身。"""
+        """
+        RULE 块入口：记录边界用于 rule_text() 方法、
+        递归进入 body 收集子元素。
+        """
+        name = ctx.ruleName().getText() if ctx.ruleName() else ''
+        if name and ctx.start is not None and ctx.stop is not None:
+            self._rule_bounds[name] = (
+                ctx.start.start, ctx.start.line,
+                ctx.stop.stop,
+            )
         self.visitChildren(ctx)
         return None
 
@@ -215,19 +225,19 @@ class _RuleElementCollector(PVRSParserVisitor):
         return None
 
     def visitConstraint(self, ctx):
-        """constraint 包含 cmpOp + expr 子节点，收集后继续递归。"""
+        """constraint 节点本身已收集，子规则（cmpOp + expr）暂不需单独收集。"""
         self._add_element('constraint', ctx)
-        return self.visitChildren(ctx)
+        return None
 
     def visitExpr(self, ctx):
         """
-        expr 是递归嵌套的（表达式中可以包含子表达式）。
-        通过 filter_fn 只收集顶层 expr，避免重复。
+        expr 节点本身已收集（仅顶层），子规则（atom、funcName 等）
+        暂不需单独收集，故停止递归以减少遍历开销。
         """
         spec = ELEMENT_TYPE_REGISTRY['expr']
         if spec.filter_fn is None or spec.filter_fn(ctx):
             self._add_element('expr', ctx)
-        return self.visitChildren(ctx)
+        return None
 
     def visitChildren(self, ctx):
         """通用回退：递归进入所有子节点。"""
@@ -311,6 +321,7 @@ class RuleEditor:
         collector = _RuleElementCollector(self.source)
         collector.visit(self._tree)
         self._elements: List[Element] = collector.elements
+        self._rule_bounds: Dict[str, tuple] = collector._rule_bounds
 
         # 暂存的修改列表
         self._changes: List[Element] = []
@@ -353,6 +364,20 @@ class RuleEditor:
         element_type : str – 类型标识符（如 "layerRef"、"constraint"）
         """
         return [e for e in self._elements if e.element_type == element_type]
+
+    def rule_text(self, rule_name: str) -> str:
+        """
+        返回指定 RULE 的完整原始文本（含 "RULE name { ... }"）。
+
+        通过解析时记录的字符边界直接从 self.source 切片获取，
+        精确还原原文内容（不含周围空白）。
+        """
+        name = rule_name.strip('"')
+        bounds = self._rule_bounds.get(name)
+        if bounds is None:
+            return ''
+        start, _line, stop = bounds
+        return self.source[start:stop + 1]
 
     def rule_names(self) -> List[str]:
         """文件中所有 RULE 名称列表（按出现顺序）。"""
