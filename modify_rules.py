@@ -1,18 +1,25 @@
 #!/usr/bin/env python3
 """
-Interactive tool to view and modify elements within RULE blocks of PVRS files.
+交互式 PVRS RULE 块元素修改工具。
 
-Usage:
+快速上手
+--------
     python modify_rules.py <pvrs_file>
 
-Workflow:
-    1. Parses the file and lists all RULE blocks
-    2. User selects a RULE by number
-    3. Shows all modifiable elements grouped by type
-    4. User picks an element and enters new text
-    5. Repeat or apply changes and save
+操作流程
+--------
+    1. 使用 ANTLR4 解析 PVRS 文件，如有语法错误立即报告
+    2. 列出所有 RULE 块及其可修改元素概况
+    3. 选择 RULE → 按类型分组展示可修改元素
+    4. 选择元素 → 输入新文本值
+    5. 可继续修改其他元素，最终确认保存
 
-The original file is backed up as <file>.bak before saving.
+保存前自动创建原文件的 .bak 备份。
+
+依赖
+----
+    rule_editor.py          – RuleEditor 类（解析、查询、修改、保存）
+    grammar/gen/*           – ANTLR4 生成的解析器
 """
 
 import sys
@@ -20,125 +27,171 @@ import os
 from rule_editor import RuleEditor, Element, get_element_types, iter_elements_by_rule
 
 
-# ---- display helpers ----
+# ============================================================
+# 界面辅助函数
+# ============================================================
 
 def _divider(char='-', width=50):
+    """打印一行视觉分隔线。"""
     print(char * width)
 
 
 def _select_from_list(items, prompt='Select'):
-    """Let user pick from a numbered list. Returns index or -1 on cancel."""
+    """
+    让用户从编号列表中选择一项。
+
+    参数
+    ----
+    items  : list – 待选列表
+    prompt : str  – 提示文字
+
+    返回
+    ----
+    int – 选中的索引（从 0 开始），-1 表示用户输入 0（返回）或 Ctrl+C
+    """
     while True:
         try:
-            raw = input(f'{prompt} (0=back): ').strip()
+            raw = input(f'{prompt} (0=返回): ').strip()
             if not raw:
                 continue
-            idx = int(raw) - 1
+            idx = int(raw) - 1            # 用户看到的是 1 起始编号
             if idx == -1:
-                return -1
+                return -1                 # 用户输入了 0
             if 0 <= idx < len(items):
                 return idx
-            print(f'  Out of range (1-{len(items)})')
+            print(f'  超出范围 (1-{len(items)})')
         except ValueError:
-            print('  Enter a number')
+            print('  请输入数字')
         except (EOFError, KeyboardInterrupt):
             return -1
 
 
-# ---- main interactive flow ----
+# ============================================================
+# 交互流程各步骤
+# ============================================================
 
 def show_rules(editor):
-    """Display all RULE blocks and let user pick one."""
+    """
+    展示所有 RULE 块列表，让用户选择一个。
+
+    返回
+    ----
+    str – 选中的 RULE 名称，None 表示返回/退出
+    """
     summaries = editor.rule_summaries()
     if not summaries:
-        print('No RULE blocks found in file.')
+        print('文件中未找到 RULE 块。')
         return None
 
-    print(f'Found {len(summaries)} RULE block(s):')
+    print(f'找到 {len(summaries)} 个 RULE 块：')
     _divider()
     for i, s in enumerate(summaries):
         types_str = ', '.join(s['types'])
-        print(f'  [{i+1}] RULE {s["name"]}  (line {s["line"]}, '
-              f'{s["count"]} elements: {types_str})')
+        print(f'  [{i+1}] RULE {s["name"]}  '
+              f'(第 {s["line"]} 行, {s["count"]} 个元素: {types_str})')
     _divider()
 
-    idx = _select_from_list(summaries, 'Select RULE')
+    idx = _select_from_list(summaries, '选择 RULE')
     if idx < 0:
         return None
     return summaries[idx]['name']
 
 
 def show_elements(editor, rule_name):
-    """Display elements in a RULE, grouped by type, with global indices."""
+    """
+    展示某个 RULE 内的所有可修改元素，按类型分组。
+
+    每个元素分配一个全局编号，方便用户在 modify_element() 中
+    按编号选择，无需关心类型。
+
+    返回
+    ----
+    (grouped, flat) – grouped 是 {type: [Element]} 字典，
+    flat 是 [(header_str, None) | (Element, num)] 混合列表
+    """
     grouped = iter_elements_by_rule(editor.elements, rule_name)
     if not grouped:
-        print(f'No modifiable elements in RULE {rule_name}')
+        print(f'RULE {rule_name} 中没有可修改元素。')
         return None, []
 
-    # Build flat list with type-group headers
-    flat: list = []   # list of either (type_header_str, []) or (elem, index)
+    # 构建混合展示列表：类型标题行 + 元素行
+    flat: list = []
     total = 0
     for etype in sorted(grouped.keys()):
         elems = grouped[etype]
-        flat.append((f'--- {etype} ({len(elems)} found) ---', None))
+        flat.append((f'--- {etype}（{len(elems)} 个）---', None))
         for e in elems:
             total += 1
             flat.append((e, total))
 
+    # 渲染输出：标题前加空行，元素前显示编号和修改标记
     for item, idx_or_none in flat:
         if idx_or_none is None:
             print(f'\n{item}')
         else:
             elem, num = item, idx_or_none
-            marker = ' *' if elem.modified else ''
-            print(f'  [{num}] {elem.text!r}{marker}  (line {elem.line})')
+            marker = ' [已修改]' if elem.modified else ''
+            print(f'  [{num}] {elem.text!r}{marker}  (第 {elem.line} 行)')
     _divider()
 
     return grouped, flat
 
 
 def modify_element(editor, grouped, flat):
-    """Interactive modify loop within a RULE."""
+    """
+    交互式修改循环。
+
+    用户输入元素编号 → 显示当前值和类型 → 输入新文本 →
+    通过 editor.add_change() 暂存修改（不立即写入磁盘）。
+    输入 0 或 Ctrl+C 返回上级菜单。
+    """
     while True:
+        # 从 flat 中提取纯元素列表（去掉标题行）
         elems_only = [(e, n) for e, n in flat if n is not None]
-        idx = _select_from_list(elems_only, 'Modify element')
+        idx = _select_from_list(elems_only, '修改元素')
         if idx < 0:
             break
 
         elem, _ = elems_only[idx]
-        print(f'  Type: {elem.element_type}')
-        print(f'  Current: {elem.text!r}')
+        print(f'  类型: {elem.element_type}')
+        print(f'  当前值: {elem.text!r}')
 
         try:
-            new_text = input('  New value: ').strip()
+            new_text = input('  新值: ').strip()
         except (EOFError, KeyboardInterrupt):
             print()
             break
 
         if not new_text or new_text == elem.text:
-            print('  (no change)')
+            print('  (无变化)')
             continue
 
         editor.add_change(elem, new_text)
-        print(f'  [OK] {elem.text!r} -> {new_text!r}')
+        print(f'  [已暂存] {elem.text!r} → {new_text!r}')
 
 
 def confirm_save(editor):
-    """Show pending changes and ask for save confirmation."""
+    """
+    显示所有暂存修改的摘要，询问用户是否确认保存。
+
+    返回
+    ----
+    bool – True 表示用户确认写入
+    """
     pending = editor.pending_changes()
     if not pending:
-        print('No changes to save.')
+        print('没有需要保存的修改。')
         return False
 
-    print(f'\n{len(pending)} change(s) pending:')
+    print(f'\n共 {len(pending)} 项修改待保存：')
     _divider()
     for e in pending:
         print(f'  RULE {e.rule_name} / {e.element_type}: '
-              f'{e.text!r} -> {e.new_text!r}')
+              f'{e.text!r} → {e.new_text!r}')
     _divider()
 
     try:
-        ans = input('Save to file? (y/n): ').strip().lower()
+        ans = input('确认保存到文件? (y/n): ').strip().lower()
     except (EOFError, KeyboardInterrupt):
         print()
         return False
@@ -146,74 +199,91 @@ def confirm_save(editor):
     return ans in ('y', 'yes')
 
 
+# ============================================================
+# 主入口
+# ============================================================
+
 def main():
+    """
+    CLI 主函数。
+
+    流程：
+        1. 解析输入文件（RuleEditor）
+        2. 有语法错误则警告，询问是否继续
+        3. 主循环：选 RULE → 浏览元素 → 修改 → 继续或结束
+        4. 退出时确认保存（自动创建 .bak 备份）
+    """
+    # ---- 参数检查 ----
     if len(sys.argv) < 2:
-        print(f'Usage: python {sys.argv[0]} <pvrs_file>')
+        print(f'用法: python {sys.argv[0]} <pvrs_file>')
         print()
-        print('Interactive tool to view and modify elements inside RULE blocks.')
-        print('Creates a .bak backup before overwriting the original file.')
+        print('交互式 PVRS RULE 块元素修改工具。')
+        print('可修改元素类型: layerRef（层引用）、constraint（约束）、expr（表达式）。')
+        print('保存前自动创建 .bak 备份。')
         sys.exit(1)
 
     filepath = sys.argv[1]
     if not os.path.exists(filepath):
-        print(f'Error: file not found: {filepath}')
+        print(f'错误: 文件不存在 — {filepath}')
         sys.exit(1)
 
-    print(f'Parsing: {filepath}')
+    # ---- 第一步：解析文件 ----
+    print(f'正在解析: {filepath}')
     try:
         editor = RuleEditor(filepath)
     except Exception as e:
-        print(f'Parse error: {e}')
+        print(f'解析失败: {e}')
         sys.exit(1)
 
+    # ---- 第一步（续）：语法错误检查 ----
     if editor.has_errors:
-        print(f'\n  WARNING: {len(editor.parse_errors)} syntax error(s) found!')
-        print(f'  Elements may be unreliable. Fix errors before editing.')
+        print(f'\n  警告: 发现 {len(editor.parse_errors)} 个语法错误！')
+        print(f'  存在错误时元素定位可能不准确，建议先修复语法错误再编辑。')
         for i, (line, col, msg) in enumerate(editor.parse_errors[:5]):
-            print(f'    [{i+1}] line {line}:{col} -> {msg}')
+            print(f'    [{i+1}] 第 {line} 行 第 {col} 列 → {msg}')
         if len(editor.parse_errors) > 5:
-            print(f'    ... and {len(editor.parse_errors)-5} more')
+            print(f'    ... 还有 {len(editor.parse_errors)-5} 个错误')
         print()
-        ans = input('  Continue anyway? (y/n): ').strip().lower()
+        ans = input('  是否继续? (y/n): ').strip().lower()
         if ans not in ('y', 'yes'):
             sys.exit(0)
 
-    print(f'  {len(editor.rule_names())} RULE(s), '
-          f'{len(editor.elements)} element(s) found.')
-    print(f'  Supported types: '
+    print(f'  共 {len(editor.rule_names())} 个 RULE，'
+          f'{len(editor.elements)} 个元素。')
+    print(f'  可修改类型: '
           f'{", ".join(t["label"] for t in get_element_types())}')
     print()
 
-    # Main loop
+    # ---- 第二步：交互主循环 ----
     while True:
         rule_name = show_rules(editor)
         if rule_name is None:
-            print('Exiting.')
+            print('退出。')
             break
 
-        print(f'\n=== RULE {rule_name} ===')
+        print(f'\n===== RULE {rule_name} =====')
         grouped, flat = show_elements(editor, rule_name)
         if grouped is None:
             continue
 
         modify_element(editor, grouped, flat)
 
-        # Return to rule list, ask if done
+        # 询问是否继续修改其他 RULE
         try:
-            ans = input('\nModify another RULE? (y/n): ').strip().lower()
+            ans = input('\n是否继续修改其他 RULE? (y/n): ').strip().lower()
         except (EOFError, KeyboardInterrupt):
             print()
             break
         if ans not in ('y', 'yes'):
             break
 
-    # Save
+    # ---- 第三步：确认并保存 ----
     if confirm_save(editor):
         editor.save()
-        print(f'Saved: {filepath}')
-        print(f'Backup: {filepath}.bak')
+        print(f'已保存: {filepath}')
+        print(f'备份: {filepath}.bak')
     else:
-        print('Changes discarded.')
+        print('修改已丢弃。')
 
 
 if __name__ == '__main__':
