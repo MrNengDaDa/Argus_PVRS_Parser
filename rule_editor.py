@@ -400,16 +400,16 @@ class RuleEditor:
             return text
         rule_start = bounds[0]
 
-        # 按 char_start 降序 → 从后往前插入标记
+        # 按 char_start 降序 → 从后往前替换
         for i, e in enumerate(reversed(elems)):
             global_idx = len(elems) - i
             local_start = e.char_start - rule_start
             local_stop = e.char_stop - rule_start
-            # 先插右侧 >>（位置靠后），再插左侧 <<N:（位置靠前）
-            text = (text[:local_stop + 1] + '>>' +
+            # 使用有效值（有修改用 new_text，无修改用原始 text）
+            effective = e.new_text if e.modified else e.text
+            marker = f'<<{global_idx}:{effective}>>'
+            text = (text[:local_start] + marker +
                     text[local_stop + 1:])
-            text = (text[:local_start] + f'<<{global_idx}:' +
-                    text[local_start:])
         return text
 
     def annotated_legend(self, rule_name: str) -> str:
