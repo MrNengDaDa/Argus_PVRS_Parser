@@ -1,0 +1,394 @@
+lexer grammar PVRSLexer;
+
+// ============================================================
+// Case-insensitive fragments (ANTLR 4.9.3)
+// ============================================================
+fragment A: [aA]; fragment B: [bB]; fragment C: [cC]; fragment D: [dD];
+fragment E: [eE]; fragment F: [fF]; fragment G: [gG]; fragment H: [hH];
+fragment I_: [iI]; fragment J: [jJ]; fragment K: [kK]; fragment L: [lL];
+fragment M: [mM]; fragment N: [nN]; fragment O: [oO]; fragment P: [pP];
+fragment Q: [qQ]; fragment R: [rR]; fragment S: [sS]; fragment T: [tT];
+fragment U: [uU]; fragment V: [vV]; fragment W: [wW]; fragment X: [xX];
+fragment Y: [yY]; fragment Z: [zZ];
+fragment UNDERSCORE: '_';
+
+// ============================================================
+// Keywords — case-insensitive, must precede ID
+// ============================================================
+
+// --- Geometry operations ---
+GEOM_INTERACT:     G E O M UNDERSCORE I_ N T E R A C T;
+GEOM_OR:           G E O M UNDERSCORE O R;
+GEOM_AND:          G E O M UNDERSCORE A N D;
+GEOM_CUT:          G E O M UNDERSCORE C U T;
+GEOM_WITH_EDGE:    G E O M UNDERSCORE W I_ T H UNDERSCORE E D G E;
+EDGE_ANGLE:        E D G E UNDERSCORE A N G L E;
+EDGE_LENGTH:       E D G E UNDERSCORE L E N G T H;
+EDGE_OR:           E D G E UNDERSCORE O R;
+GEOM_ORTH_SIZE:    G E O M UNDERSCORE O R T H UNDERSCORE S I_ Z E;
+RIGHT:             R I_ G H T;
+TOP:               T O P;
+LEFT:              L E F T;
+BOTTOM:            B O T T O M;
+IN_ORDER:          I_ N UNDERSCORE O R D E R;
+GEOM_SIZE:         G E O M UNDERSCORE S I_ Z E;
+INSIDE_OF_LAYER:   I_ N S I_ D E UNDERSCORE O F UNDERSCORE L A Y E R;
+OUTSIDE_OF_LAYER:  O U T S I_ D E UNDERSCORE O F UNDERSCORE L A Y E R;
+DELTA:             D E L T A;
+CLIP:              C L I_ P;
+CLIP_CORNER:       C L I_ P UNDERSCORE C O R N E R;
+GEOM_ADJACENT:     G E O M UNDERSCORE A D J A C E N T;
+GEOM_WITH_WIDTH:   G E O M UNDERSCORE W I_ T H UNDERSCORE W I_ D T H;
+GEOM_WITH_ADJACENT: G E O M UNDERSCORE W I_ T H UNDERSCORE A D J A C E N T;
+DISTANCE:          D I_ S T A N C E;
+FROM_CENTER:       F R O M UNDERSCORE C E N T E R;
+OCTAGONAL_RECT:    O C T A G O N A L UNDERSCORE R E C T;
+ORTHOGONAL_RECT:   O R T H O G O N A L UNDERSCORE R E C T;
+GEOM_EDGE_TO_RECT: G E O M UNDERSCORE E D G E UNDERSCORE T O UNDERSCORE R E C T;
+INSIDE:            I_ N S I_ D E;
+INSIDE_BY_FACTOR:  I_ N S I_ D E UNDERSCORE B Y UNDERSCORE F A C T O R;
+OUTSIDE:           O U T S I_ D E;
+OUTSIDE_BY_FACTOR: O U T S I_ D E UNDERSCORE B Y UNDERSCORE F A C T O R;
+BOTH_SIDE:         B O T H UNDERSCORE S I_ D E;
+BOTH_SIDE_BY_FACTOR: B O T H UNDERSCORE S I_ D E UNDERSCORE B Y UNDERSCORE F A C T O R;
+EXTEND:            E X T E N D;
+EXTEND_BY_FACTOR:  E X T E N D UNDERSCORE B Y UNDERSCORE F A C T O R;
+FILL_CORNER:       F I_ L L UNDERSCORE C O R N E R;
+GEOM_RECTANGLE:    G E O M UNDERSCORE R E C T A N G L E;
+BY:                B Y;
+RATIO:             R A T I_ O;
+ORTHOGONAL:        O R T H O G O N A L;
+FIXED:             F I_ X E D;
+BY_BOUNDARIES:     B Y UNDERSCORE B O U N D A R I_ E S;
+GEOM_HOLES:        G E O M UNDERSCORE H O L E S;
+GEOM_INSIDE:       G E O M UNDERSCORE I_ N S I_ D E;
+GEOM_OUTSIDE:      G E O M UNDERSCORE O U T S I_ D E;
+GEOM_WITH_LABEL:   G E O M UNDERSCORE W I_ T H UNDERSCORE L A B E L;
+TOP_CELL:          T O P UNDERSCORE C E L L;
+CASE_SENSITIVE:    C A S E UNDERSCORE S E N S I_ T I_ V E;
+GEOM_TRANSFER_NETID: G E O M UNDERSCORE T R A N S F E R UNDERSCORE N E T I_ D;
+INCLUDE_ADJACENT:  I_ N C L U D E UNDERSCORE A D J A C E N T;
+INNER_MOST:        I_ N N E R UNDERSCORE M O S T;
+HOLLOW:            H O L L O W;
+GEOM_ENCLOSE:      G E O M UNDERSCORE E N C L O S E;
+EDGE_INSIDE:       E D G E UNDERSCORE I_ N S I_ D E;
+EDGE_COINCIDENT:   E D G E UNDERSCORE C O I_ N C I_ D E N T;
+EDGE_ADJACENT:     E D G E UNDERSCORE A D J A C E N T;
+GEOM_DONUT:        G E O M UNDERSCORE D O N U T;
+GEOM_XOR:          G E O M UNDERSCORE X O R;
+GEOM_MERGE:        G E O M UNDERSCORE M E R G E;
+GEOM_FLATTEN:      G E O M UNDERSCORE F L A T T E N;
+GEOM_GET_LAYOUT_BOUNDARY: G E O M UNDERSCORE G E T UNDERSCORE L A Y O U T UNDERSCORE B O U N D A R Y;
+IGNORE_LAYER:      I_ G N O R E UNDERSCORE L A Y E R;
+XOR:               X O R;
+COPY:              C O P Y;
+DRC_OUTPUT_RULE_TEXT: D R C UNDERSCORE O U T P U T UNDERSCORE R U L E UNDERSCORE T E X T;
+DRC_OUTPUT_CELL_NAME: D R C UNDERSCORE O U T P U T UNDERSCORE C E L L UNDERSCORE N A M E;
+DRC_RESULT:        D R C UNDERSCORE R E S U L T;
+DRC_RULE_MAP:      D R C UNDERSCORE R U L E UNDERSCORE M A P;
+ADD_TEXT:          A D D UNDERSCORE T E X T;
+DB_PRECISION:      D B UNDERSCORE P R E C I_ S I_ O N;
+DB_MAGNIFY:        D B UNDERSCORE M A G N I_ F Y;
+INJECT_ARRAY:      I_ N J E C T UNDERSCORE A R R A Y;
+BY_POLYGON:        B Y UNDERSCORE P O L Y G O N;
+AUTO_INJECT_ARRAY: A U T O UNDERSCORE I_ N J E C T UNDERSCORE A R R A Y;
+DRC_MAX_RESULT:    D R C UNDERSCORE M A X UNDERSCORE R E S U L T;
+DRC_MAX_VERTEX:    D R C UNDERSCORE M A X UNDERSCORE V E R T E X;
+DRC_SUMMARY:       D R C UNDERSCORE S U M M A R Y;
+ERC_RESULT:        E R C UNDERSCORE R E S U L T;
+ERC_MAX_RESULT:    E R C UNDERSCORE M A X UNDERSCORE R E S U L T;
+ERC_SUMMARY:       E R C UNDERSCORE S U M M A R Y;
+ERC_OUTPUT_CELL_NAME: E R C UNDERSCORE O U T P U T UNDERSCORE C E L L UNDERSCORE N A M E;
+GUI_PRIORITY:      G U I_ UNDERSCORE P R I_ O R I_ T Y;
+DB:                D B;
+TEXT_FORMAT:       T E X T UNDERSCORE F O R M A T;
+GDS:               G D S;
+WITH_PREFIX:       W I_ T H UNDERSCORE P R E F I_ X;
+WITH_INJECTED_PREFIX: W I_ T H UNDERSCORE I_ N J E C T E D UNDERSCORE P R E F I_ X;
+WITH_APPEND:       W I_ T H UNDERSCORE A P P E N D;
+MERGED:            M E R G E D;
+KEEP_INJECTED_CELL: K E E P UNDERSCORE I_ N J E C T E D UNDERSCORE C E L L;
+USER_CELL:         U S E R UNDERSCORE C E L L;
+NOCBLOCK:          N O C B L O C K;
+OVERWRITE:         O V E R W R I_ T E;
+APPEND:            A P P E N D;
+BY_CELL:           B Y UNDERSCORE C E L L;
+HIER:              H I_ E R;
+COMMENT:           C O M M E N T;
+ALL:               A L L;
+NONE:              N O N E;
+NO:                N O;
+YES:               Y E S;
+CELL_COORDINATE:   C E L L UNDERSCORE C O O R D I_ N A T E;
+TRANSFORM_TO_TOP:  T R A N S F O R M UNDERSCORE T O UNDERSCORE T O P;
+LABEL_LEVEL:       L A B E L UNDERSCORE L E V E L;
+LABEL_LAYER:       L A B E L UNDERSCORE L A Y E R;
+PORT_POLYGON:      P O R T UNDERSCORE P O L Y G O N;
+LAYOUT_INPUT:      L A Y O U T UNDERSCORE I_ N P U T;
+LAYOUT_DEVICE_LAYER: L A Y O U T UNDERSCORE D E V I_ C E UNDERSCORE L A Y E R;
+LVS_POWER:         L V S UNDERSCORE P O W E R;
+LVS_GROUND:        L V S UNDERSCORE G R O U N D;
+FORMAT:            F O R M A T;
+GDSII:             G D S I_ I_;
+OASIS:             O A S I_ S;
+SPICE:             S P I_ C E;
+OA:                O A;
+PATH:              P A T H;
+MAGNIFY:           M A G N I_ F Y;
+AUTO:              A U T O;
+STDIN:             S T D I_ N;
+ATTACH:            A T T A C H;
+CONNECT:           C O N N E C T;
+WITH:              W I_ T H;
+TEXT:              T E X T;
+PORT:              P O R T;
+PRECISION:         P R E C I_ S I_ O N;
+LAYER_MAP:         L A Y E R UNDERSCORE M A P;
+LAYER:             L A Y E R;
+INCREMENTAL_CONNECT: I_ N C R E M E N T A L UNDERSCORE C O N N E C T;
+VIRTUAL_CONNECT:   V I_ R T U A L UNDERSCORE C O N N E C T;
+BLACK_BOX_COLON:   B L A C K UNDERSCORE B O X UNDERSCORE C O L O N;
+BLACK_BOX_NAME:    B L A C K UNDERSCORE B O X UNDERSCORE N A M E;
+COLON:             C O L O N;
+NAME:              N A M E;
+REPORT_WARNING:    R E P O R T UNDERSCORE W A R N I_ N G;
+REPORT_MAX:        R E P O R T UNDERSCORE M A X;
+SEMICOLON:         S E M I_ C O L O N;
+LEVEL:             L E V E L;
+DATATYPE:          D A T A T Y P E;
+TEXTTYPE:          T E X T T Y P E;
+CHECK_DENSITY:     C H E C K UNDERSCORE D E N S I_ T Y;
+CHECK_NAR:         C H E C K UNDERSCORE N A R;
+DIVIDE:            D I_ V I_ D E;
+INCREMENTAL:       I_ N C R E M E N T A L;
+OUTPUT_BY_LAYER:   O U T P U T UNDERSCORE B Y UNDERSCORE L A Y E R;
+MAX:               M A X;
+DFM_BUILD_PROPERTY: D F M UNDERSCORE B U I_ L D UNDERSCORE P R O P E R T Y;
+DFM_BUILD_PROPERTY_SELECT_ASSISTANT: D F M UNDERSCORE B U I_ L D UNDERSCORE P R O P E R T Y UNDERSCORE S E L E C T UNDERSCORE A S S I_ S T A N T;
+DFM_CHECK_SPACE:   D F M UNDERSCORE C H E C K UNDERSCORE S P A C E;
+DFM_OR_EDGE:       D F M UNDERSCORE O R UNDERSCORE E D G E;
+BY_EXT:            B Y UNDERSCORE E X T;
+BY_INT:            B Y UNDERSCORE I_ N T;
+BY_ENC:            B Y UNDERSCORE E N C;
+BY_ALL:            B Y UNDERSCORE A L L;
+X_DIRECTION:       X UNDERSCORE D I_ R E C T I_ O N;
+Y_DIRECTION:       Y UNDERSCORE D I_ R E C T I_ O N;
+SHIELD_LEVEL:      S H I_ E L D UNDERSCORE L E V E L;
+SHIELD_LAYER:      S H I_ E L D UNDERSCORE L A Y E R;
+CHECK_ALL:         C H E C K UNDERSCORE A L L;
+SELECT:            S E L E C T;
+MULTI_CLUSTER:     M U L T I_ UNDERSCORE C L U S T E R;
+SINGLE_CLUSTER:    S I_ N G L E UNDERSCORE C L U S T E R;
+NOPUSH:            N O P U S H;
+NO_GLOBALXY:       N O UNDERSCORE G L O B A L X Y;
+GLOBALXY:          G L O B A L X Y;
+DBU:               D B U;
+NODAL:             N O D A L;
+RULE:              R U L E;
+GROUP_RULE:        G R O U P UNDERSCORE R U L E;
+BANG:              '!';
+BY_WINDOW:         B Y UNDERSCORE W I_ N D O W;
+BOUNDARY_TRUNCATE: B O U N D A R Y UNDERSCORE T R U N C A T E;
+BOUNDARY_BACKUP:   B O U N D A R Y UNDERSCORE B A C K U P;
+BOUNDARY_IGNORE:   B O U N D A R Y UNDERSCORE I_ G N O R E;
+BOUNDARY_REPEAT:   B O U N D A R Y UNDERSCORE R E P E A T;
+INSIDE_OF_BOUNDARY: I_ N S I_ D E UNDERSCORE O F UNDERSCORE B O U N D A R Y;
+INSIDE_OF_REGION:  I_ N S I_ D E UNDERSCORE O F UNDERSCORE R E G I_ O N;
+IN_BOUNDARIES:     I_ N UNDERSCORE B O U N D A R I_ E S;
+IN_POLYGON:        I_ N UNDERSCORE P O L Y G O N;
+IN_BOUNDARIES_CENTER: I_ N UNDERSCORE B O U N D A R I_ E S UNDERSCORE C E N T E R;
+CHECK_GRADIENT:    C H E C K UNDERSCORE G R A D I_ E N T;
+CHECK_SEPARATE_GRADIENT: C H E C K UNDERSCORE S E P A R A T E UNDERSCORE G R A D I_ E N T;
+RELATIVE_RATIO:    R E L A T I_ V E UNDERSCORE R A T I_ O;
+ABSOLUTE_VALUE:    A B S O L U T E UNDERSCORE V A L U E;
+CORNER_ALSO:       C O R N E R UNDERSCORE A L S O;
+OUTPUT_CENTER:     O U T P U T UNDERSCORE C E N T E R;
+OUTPUT_LOG:        O U T P U T UNDERSCORE L O G;
+ONLY_OUTPUT_LOG:   O N L Y UNDERSCORE O U T P U T UNDERSCORE L O G;
+RESULT_DB:         R E S U L T UNDERSCORE D B;
+ONLY_RESULT_DB:    O N L Y UNDERSCORE R E S U L T UNDERSCORE D B;
+MAG:               M A G;
+ADD:               '+';
+SUB:               '-';
+MUL:               '*';
+DIV:               '/';
+POW:               '^';
+GEOM_GET_BOUNDARIES: G E O M UNDERSCORE G E T UNDERSCORE B O U N D A R I_ E S;
+GEOM_GET_BOUNDARY: G E O M UNDERSCORE G E T UNDERSCORE B O U N D A R Y;
+GEOM_NET:          G E O M UNDERSCORE N E T;
+BY_AREA:           B Y UNDERSCORE A R E A;
+BY_LAYER:          B Y UNDERSCORE L A Y E R;
+GEOM_GET_CELL_BOUNDARY: G E O M UNDERSCORE G E T UNDERSCORE C E L L UNDERSCORE B O U N D A R Y;
+ORIGINAL_LAYER:    O R I_ G I_ N A L UNDERSCORE L A Y E R;
+MAPPED_LAYER:      M A P P E D UNDERSCORE L A Y E R;
+USED_LAYER:        U S E D UNDERSCORE L A Y E R;
+PATTERN_MATCH:     P A T T E R N UNDERSCORE M A T C H;
+GOLDEN:            G O L D E N;
+DFM_COPY:          D F M UNDERSCORE C O P Y;
+UNMERGED_REGION:   U N M E R G E D UNDERSCORE R E G I_ O N;
+MIDDLE_LINE:       M I_ D D L E UNDERSCORE L I_ N E;
+CONNECTING_LINE:   C O N N E C T I_ N G UNDERSCORE L I_ N E;
+CONNECTING_MIDPOINT: C O N N E C T I_ N G UNDERSCORE M I_ D P O I_ N T;
+EDGE_COLLECTION:   E D G E UNDERSCORE C O L L E C T I_ O N;
+LAYER_ID:          L A Y E R UNDERSCORE I_ D;
+UNMERGED_EDGE:     U N M E R G E D UNDERSCORE E D G E;
+CELL_GROUP:        C E L L UNDERSCORE G R O U P;
+DFM_RESULT:        D F M UNDERSCORE R E S U L T;
+FIRST_NODE:        F I_ R S T UNDERSCORE N O D E;
+ALL_NODE:          A L L UNDERSCORE N O D E;
+OTHER_NODE:        O T H E R UNDERSCORE N O D E;
+FLATTEN_INJECTION: F L A T T E N UNDERSCORE I_ N J E C T I_ O N;
+IGNORE_EMPTY:      I_ G N O R E UNDERSCORE E M P T Y;
+ALL_CELL:          A L L UNDERSCORE C E L L;
+NOT_KEEP_INJECTED_CELL: N O T UNDERSCORE K E E P UNDERSCORE I_ N J E C T E D UNDERSCORE C E L L;
+OUTPUT_BOUNDARY:   O U T P U T UNDERSCORE B O U N D A R Y;
+MAX_RESULT:        M A X UNDERSCORE R E S U L T;
+MAX_VERTEX:        M A X UNDERSCORE V E R T E X;
+RULE_NAME:         R U L E UNDERSCORE N A M E;
+EDGE:              E D G E;
+OUTPUT_SQUARE:     O U T P U T UNDERSCORE S Q U A R E;
+OUTPUT_OVERLAP_REGION: O U T P U T UNDERSCORE O V E R L A P UNDERSCORE R E G I_ O N;
+OUT_IN:            O U T UNDERSCORE I_ N;
+IN_OUT:            I_ N UNDERSCORE O U T;
+GEOM_AREA:         G E O M UNDERSCORE A R E A;
+GEOM_NOT:          G E O M UNDERSCORE N O T;
+NOT:               N O T;
+EDGE_CONVEX_POINT: E D G E UNDERSCORE C O N V E X UNDERSCORE P O I_ N T;
+WITH_EDGE_LENGTH:  W I_ T H UNDERSCORE E D G E UNDERSCORE L E N G T H;
+ADJACENT_EDGE_ANGLE1:  A D J A C E N T UNDERSCORE E D G E UNDERSCORE A N G L E '1';
+ADJACENT_EDGE_LENGTH1: A D J A C E N T UNDERSCORE E D G E UNDERSCORE L E N G T H '1';
+ADJACENT_EDGE_ANGLE2:  A D J A C E N T UNDERSCORE E D G E UNDERSCORE A N G L E '2';
+ADJACENT_EDGE_LENGTH2: A D J A C E N T UNDERSCORE E D G E UNDERSCORE L E N G T H '2';
+
+// --- INT / WIDTH / OVERLAP ---
+INT:               I_ N T;
+WIDTH:             W I_ D T H;
+OVERLAP:           O V E R L A P;
+EXT:               E X T;
+SPACE:             S P A C E;
+ENC:               E N C;
+EXTENSION:         E X T E N S I_ O N;
+EUCLIDEAN:         E U C L I_ D E A N;
+ENC_RECT:          E N C UNDERSCORE R E C T;
+OUTSIDE_ALSO:      O U T S I_ D E UNDERSCORE A L S O;
+INSIDE_ALSO:       I_ N S I_ D E UNDERSCORE A L S O;
+ONLY_ORTHOGONAL:   O N L Y UNDERSCORE O R T H O G O N A L;
+CORRECT:           C O R R E C T;
+INCORRECT:         I_ N C O R R E C T;
+OPPOSITE_EXTENDED: O P P O S I_ T E UNDERSCORE E X T E N D E D;
+
+// --- Common option keywords ---
+OR:                O R;
+AND:               A N D;
+COUNT:             C O U N T;
+COUNT_BY_NET:      C O U N T UNDERSCORE B Y UNDERSCORE N E T;
+EVEN:              E V E N;
+ODD:               O D D;
+POINT:             P O I_ N T;
+ONLY_POINT:        O N L Y UNDERSCORE P O I_ N T;
+POINT_TOUCH:       P O I_ N T UNDERSCORE T O U C H;
+ONLY_POINT_TOUCH:  O N L Y UNDERSCORE P O I_ N T UNDERSCORE T O U C H;
+SAME_NET:          S A M E UNDERSCORE N E T;
+DIFF_NET:          D I_ F F UNDERSCORE N E T;
+SAME_POLYGON:      S A M E UNDERSCORE P O L Y G O N;
+DIFF_POLYGON:      D I_ F F UNDERSCORE P O L Y G O N;
+CELL_LEVEL:        C E L L UNDERSCORE L E V E L;
+
+// --- INT/WIDTH/OVERLAP: measurement_metric ---
+OPPOSITE:             O P P O S I_ T E;
+SQUARE:               S Q U A R E;
+SQUARE_ORTHOGONAL:    S Q U A R E UNDERSCORE O R T H O G O N A L;
+EXTENDED_OPPOSITE:    E X T E N D E D UNDERSCORE O P P O S I_ T E;
+OPP_SYM:              O P P UNDERSCORE S Y M;
+OPP_FSYM:             O P P UNDERSCORE F S Y M;
+OPP_SYM_EXTENDED:     O P P UNDERSCORE S Y M UNDERSCORE E X T E N D E D;
+OPP_FSYM_EXTENDED:    O P P UNDERSCORE F S Y M UNDERSCORE E X T E N D E D;
+OPPOSITE1:            O P P O S I_ T E '1';
+OPPOSITE2:            O P P O S I_ T E '2';
+OPPOSITE_EXTENDED1:   O P P O S I_ T E UNDERSCORE E X T E N D E D '1';
+OPPOSITE_EXTENDED2:   O P P O S I_ T E UNDERSCORE E X T E N D E D '2';
+
+// --- INT/WIDTH/OVERLAP: orientation_containment ---
+ACUTE_ONLY:          A C U T E UNDERSCORE O N L Y;
+ACUTE_ALSO:          A C U T E UNDERSCORE A L S O;
+NOT_ACUTE:           N O T UNDERSCORE A C U T E;
+PARALLEL_ONLY:       P A R A L L E L UNDERSCORE O N L Y;
+PARALLEL_ALSO:       P A R A L L E L UNDERSCORE A L S O;
+NOT_PARALLEL:        N O T UNDERSCORE P A R A L L E L;
+PERPENDICULAR_ONLY:  P E R P E N D I_ C U L A R UNDERSCORE O N L Y;
+PERPENDICULAR_ALSO:  P E R P E N D I_ C U L A R UNDERSCORE A L S O;
+NOT_PERPENDICULAR:   N O T UNDERSCORE P E R P E N D I_ C U L A R;
+OBTUSE_ONLY:         O B T U S E UNDERSCORE O N L Y;
+OBTUSE_ALSO:         O B T U S E UNDERSCORE A L S O;
+NOT_OBTUSE:          N O T UNDERSCORE O B T U S E;
+
+// --- INT/WIDTH/OVERLAP: measurement_containment ---
+ALL_EDGE:              A L L UNDERSCORE E D G E;
+SHIELDED_LEVEL:        S H I_ E L D E D UNDERSCORE L E V E L;
+COINCIDENT_EDGE_ALSO:  C O I_ N C I_ D E N T UNDERSCORE E D G E UNDERSCORE A L S O;
+
+// --- INT/WIDTH/OVERLAP: apposition_containment ---
+APPOSITION:    A P P O S I_ T I_ O N;
+NO_APPOSITION: N O UNDERSCORE A P P O S I_ T I_ O N;
+
+// --- INT/WIDTH/OVERLAP: angle_containment ---
+ANGLED_EDGE:   A N G L E D UNDERSCORE E D G E;
+
+// --- INT/WIDTH/OVERLAP: corner_containment ---
+CORNER_CORNER: C O R N E R UNDERSCORE C O R N E R;
+CORNER_EDGE:   C O R N E R UNDERSCORE E D G E;
+ALL_CORNER:    A L L UNDERSCORE C O R N E R;
+NOT_CORNER:    N O T UNDERSCORE C O R N E R;
+
+// --- INT/WIDTH/OVERLAP: intersection_containment ---
+INTERSECTING_ONLY: I_ N T E R S E C T I_ N G UNDERSCORE O N L Y;
+ADJACENT:          A D J A C E N T;
+OVERLAPPED:        O V E R L A P P E D;
+
+// --- INT/WIDTH/OVERLAP: region_containment ---
+REGION:             R E G I_ O N;
+REGION_BOUNDARIES:  R E G I_ O N UNDERSCORE B O U N D A R I_ E S;
+REGION_CENTERLINE:  R E G I_ O N UNDERSCORE C E N T E R L I_ N E;
+
+// ============================================================
+// Delimiters
+// ============================================================
+LPAREN:   '(';
+RPAREN:   ')';
+LBRACK:   '[';
+RBRACK:   ']';
+LBRACE:   '{';
+RBRACE:   '}';
+COMMA:    ',';
+SEMI:     ';';
+
+// ============================================================
+// Operators
+// ============================================================
+TILDE:    '~';
+ASSIGN:   '=';
+EQ:       '==';
+LT:       '<';
+GT:       '>';
+LE:       '<=';
+GE:       '>=';
+NE:       '!=';
+
+// ============================================================
+// Literals
+// ============================================================
+FLOAT:    [0-9]+ '.' [0-9]+ ([eE] [+-]? [0-9]+)?;
+INT_LIT:  [0-9]+;
+STRING:   '"' (~["\r\n])* '"';
+
+// ============================================================
+// Identifier — must come AFTER all keywords
+// ============================================================
+ID:       [a-zA-Z0-9_:?.]+;
+
+// ============================================================
+// Whitespace & comments (skip)
+// ============================================================
+WS:              [ \t\r\n]+                -> skip;
+BLOCK_COMMENT:   '/*' .*? '*/'             -> skip;
+LINE_COMMENT:    ('//' | ';') ~[\r\n]*     -> skip;

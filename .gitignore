@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+gen/
+dist/
+build/
+*.spec
+tests/
+*.bak
