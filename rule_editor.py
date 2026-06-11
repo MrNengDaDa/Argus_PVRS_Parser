@@ -381,29 +381,34 @@ class RuleEditor:
 
     def annotated_text(self, rule_name: str) -> str:
         """
-        返回带有内嵌编号 [N] 标注的 RULE 原文视图。
+        返回带有内嵌标注 `<<N:value>>` 的 RULE 原文视图。
 
-        每个可修改元素前插入 [N] 标记，N 对应元素在此 RULE 内
-        的全局编号。后续可配合编号说明表使用，方便定位元素位置。
+        每个可修改元素被 `<<N:` 和 `>>` 包围显示，
+        N 为此 RULE 内的全局编号。配合编号说明表使用，
+        可直观定位每个元素的位置和类型。
 
-        实现：从右往左插入标记，保证前面的插入不影响后面偏移量。
+        实现：从右往左依次在元素右侧插入 `>>`、左侧插入 `<<N:`，
+        保证前面的插入不影响后面元素的偏移量。
         """
         elems = self.elements_by_rule(rule_name)
         if not elems:
             return self.rule_text(rule_name)
 
         text = self.rule_text(rule_name)
+        bounds = self._rule_bounds.get(rule_name.strip('"'))
+        if bounds is None:
+            return text
+        rule_start = bounds[0]
+
         # 按 char_start 降序 → 从后往前插入标记
         for i, e in enumerate(reversed(elems)):
             global_idx = len(elems) - i
-            # 将 char_start/stop 从 source 偏移转换为 rule_text 内的偏移
-            bounds = self._rule_bounds.get(rule_name.strip('"'))
-            if bounds is None:
-                continue
-            rule_start = bounds[0]
             local_start = e.char_start - rule_start
-            # 插入 [N]
-            text = (text[:local_start] + f'[{global_idx}]' +
+            local_stop = e.char_stop - rule_start
+            # 先插右侧 >>（位置靠后），再插左侧 <<N:（位置靠前）
+            text = (text[:local_stop + 1] + '>>' +
+                    text[local_stop + 1:])
+            text = (text[:local_start] + f'<<{global_idx}:' +
                     text[local_start:])
         return text
 
@@ -412,9 +417,9 @@ class RuleEditor:
         返回与 annotated_text 配套的编号说明表。
 
         格式示例：
-            --- 编号说明 ---
-            [1] layerRef       M1
-            [2] constraint     < 0.5
+            --- 编号说明（10 个）---
+            <<1>> layerRef       M1
+            <<2>> constraint     < 0.5
              ...
         """
         elems = self.elements_by_rule(rule_name)
@@ -425,7 +430,7 @@ class RuleEditor:
         for i, e in enumerate(elems, 1):
             marker = ' [已修改]' if e.modified else ''
             lines.append(
-                f'  [{i}] {e.element_type:<{max_type}}  '
+                f'  <<{i}>> {e.element_type:<{max_type}}  '
                 f'{e.text}{marker}  (第 {e.line} 行)'
             )
         return '\n'.join(lines)

@@ -137,7 +137,7 @@ def modify_element(editor, elems):
         sel_idx, elem = _select_from_list(
             elems,
             key_fn=lambda e: e.text,
-            prompt='修改元素 (输入标注 [N])',
+            prompt='修改元素 (输入标注 <<N>>)',
         )
         if sel_idx < 0:
             break
