@@ -159,40 +159,47 @@ class _RuleElementCollector(PVRSParserVisitor):
 
     # ---- 辅助方法 ----
 
-    def _rule_from_ctx(self, ctx) -> Optional[str]:
+    def _parent_name_from_ctx(self, ctx) -> Optional[str]:
         """
-        从当前语法节点向上查找所属的 rule_statement，
-        返回该 RULE 的名称。不在任何 RULE 内则返回 None。
+        从当前语法节点向上查找所属的容器块，返回容器名称。
+
+        优先级：rule_statement > 顶层 derived_layer_def
+        （RULE 内部的赋值语句归属到该 RULE）
         """
         node = ctx
+        found_def = None
         while node is not None:
             if isinstance(node, _PVRSParser.Rule_statementContext):
                 rn = node.ruleName()
-                if rn is not None:
-                    return rn.getText()    # ruleName 已自动去除引号
-                return None
+                return rn.getText() if rn else None
+            if isinstance(node, _PVRSParser.Derived_layer_defContext):
+                if found_def is None:
+                    lr = node.layerRef()
+                    if lr is not None and lr.start is not None and lr.stop is not None:
+                        found_def = self.source[lr.start.start:lr.stop.stop + 1]
             node = node.parentCtx
-        return None
+        return found_def
 
     def _add_element(self, etype: str, ctx):
         """
         根据语法节点创建一个 Element 并添加到 self.elements。
 
         跳过缺少位置信息的节点（正常情况不会发生）以及不在任何
-        RULE 块内的节点。元素文本通过 ANTLR 提供的字符偏移量
-        直接从 self.source 中切片获取，确保与原始文本一字不差。
+        RULE 块或 derived_layer_def 内的节点。
+        元素文本通过 ANTLR 提供的字符偏移量直接从 self.source
+        中切片获取，确保与原始文本一字不差。
         """
         if ctx.start is None or ctx.stop is None:
             return
-        rule_name = self._rule_from_ctx(ctx)
-        if not rule_name:
-            return                 # 不在任何 RULE 内，跳过
+        parent_name = self._parent_name_from_ctx(ctx)
+        if not parent_name:
+            return                 # 不在任何容器内，跳过
         # ANTLR token 的 start/stop 为包含边界：ctx.start.start 到
         # ctx.stop.stop 是闭区间，切片需要 +1
         text = self.source[ctx.start.start:ctx.stop.stop + 1]
         elem = Element(
             element_type=etype,
-            rule_name=rule_name,
+            rule_name=parent_name,
             text=text,
             line=ctx.start.line,
             char_start=ctx.start.start,
@@ -215,7 +222,35 @@ class _RuleElementCollector(PVRSParserVisitor):
             self._rule_bounds[name] = (
                 ctx.start.start, ctx.start.line,
                 ctx.stop.stop,
+                'RULE',
             )
+        self.visitChildren(ctx)
+        return None
+
+    def _is_inside_rule(self, ctx) -> bool:
+        """检查当前节点是否在某个 rule_statement 内部。"""
+        node = ctx.parentCtx
+        while node is not None:
+            if isinstance(node, _PVRSParser.Rule_statementContext):
+                return True
+            node = node.parentCtx
+        return False
+
+    def visitDerived_layer_def(self, ctx):
+        """
+        赋值语句入口。只有不在任何 RULE 内部的（顶层的）
+        derived_layer_def 才单独记录边界、作为独立容器；
+        RULE 内部的赋值语句归属到所在的 RULE 即可。
+        """
+        if not self._is_inside_rule(ctx):
+            lr = ctx.layerRef()
+            if lr is not None and lr.start is not None and ctx.start is not None and ctx.stop is not None:
+                name = self.source[lr.start.start:lr.stop.stop + 1]
+                self._rule_bounds[name] = (
+                    ctx.start.start, ctx.start.line,
+                    ctx.stop.stop,
+                    'DEF',
+                )
         self.visitChildren(ctx)
         return None
 
@@ -376,7 +411,7 @@ class RuleEditor:
         bounds = self._rule_bounds.get(name)
         if bounds is None:
             return ''
-        start, _line, stop = bounds
+        start, _line, stop, _kind = bounds
         return self.source[start:stop + 1]
 
     def annotated_text(self, rule_name: str) -> str:
@@ -447,19 +482,23 @@ class RuleEditor:
 
     def rule_summaries(self) -> List[Dict[str, Any]]:
         """
-        每个 RULE 的摘要信息。
+        每个容器（RULE / 非 RULE 赋值）的摘要信息。
 
-        返回 [{'name': ..., 'line': ..., 'count': ..., 'types': [...]}, ...]
+        返回 [{'name': ..., 'line': ..., 'count': ..., 'types': [...], 'kind': ...}, ...]
+        kind 为 'RULE' | 'DEF'（derived_layer_def）
         """
         names = self.rule_names()
         result = []
         for name in names:
             elems = self.elements_by_rule(name)
+            bounds = self._rule_bounds.get(name)
+            kind = bounds[3] if bounds else ''
             result.append({
                 'name': name,
                 'line': elems[0].line if elems else 0,
                 'count': len(elems),
                 'types': sorted(set(e.element_type for e in elems)),
+                'kind': kind,
             })
         return result
 

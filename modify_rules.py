@@ -91,35 +91,40 @@ def show_rules(editor):
     """
     summaries = editor.rule_summaries()
     if not summaries:
-        print('文件中未找到 RULE 块。')
+        print('文件中未找到可修改容器（RULE / 赋值）。')
         return None
 
-    print(f'找到 {len(summaries)} 个 RULE 块：')
+    rule_items = [s for s in summaries if s['kind'] == 'RULE']
+    def_items  = [s for s in summaries if s['kind'] == 'DEF']
+
+    print(f'找到 {len(rule_items)} 个 RULE, {len(def_items)} 个赋值语句：')
     _divider()
     for i, s in enumerate(summaries):
+        prefix = 'RULE' if s['kind'] == 'RULE' else '  DEF'
         types_str = ', '.join(s['types'])
-        print(f'  [{i+1}] RULE {s["name"]}  '
+        print(f'  [{i+1}] {prefix} {s["name"]}  '
               f'(第 {s["line"]} 行, {s["count"]} 个元素: {types_str})')
     _divider()
 
     idx, chosen = _select_from_list(
         summaries,
         key_fn=lambda s: s['name'].strip('"'),
-        prompt='选择 RULE',
+        prompt='选择容器',
     )
     if idx < 0:
         return None
 
-    # 输出标注后的 RULE 文本 + 编号说明表
-    rule_name = chosen['name']
+    # 输出标注后的原文 + 编号说明表
+    container_name = chosen['name']
     count = chosen['count']
-    print(f'\n  RULE {rule_name} 原文标注 (共 {count} 个可修改元素):')
+    kind_label = 'RULE' if chosen['kind'] == 'RULE' else '赋值语句'
+    print(f'\n  {kind_label} {container_name} 原文标注 (共 {count} 个可修改元素):')
     _divider()
-    print(editor.annotated_text(rule_name))
+    print(editor.annotated_text(container_name))
     _divider()
-    print(editor.annotated_legend(rule_name))
+    print(editor.annotated_legend(container_name))
     _divider()
-    return rule_name
+    return container_name
 
 
 def modify_element(editor, elems):
