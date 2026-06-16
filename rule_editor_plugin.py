@@ -213,21 +213,28 @@ class RuleEditorPlugin:
                     total += 1
         return total
 
-    def save(self, output_path: str = None, backup: bool = True) -> tuple:
+    def save(self, output_path: str = None, backup: bool = True) -> dict:
         """
-        校验并保存。
+        校验并保存。先调用 editor.validate() 检查语法，
+        通过后写入磁盘，失败则保留修改。
 
-        返回
-        ----
-        (ok: bool, message: str) – ok=True 表示保存成功。
-        失败时 message 包含错误详情，修改保留。
+        返回 dict – 与 check() 相同的结构：
+            {'ok': bool, 'errors': [(line, col, msg), ...]}
+            ok=False 时 errors 为校验失败详情，修改仍保留。
         """
+        ed = self._editor
+        # 先校验
+        errors = ed.validate()
+        if errors:
+            return {'ok': False, 'errors': errors}
+
+        # 通过，写入
         try:
-            self._editor.save(output_path=output_path, backup=backup)
-            return (True, f'Saved: {output_path or self.filepath}')
+            ed.save(output_path=output_path, backup=backup)
+            return {'ok': True, 'errors': []}
         except SyntaxError as e:
-            msg = str(e)
-            return (False, msg)
+            # save 内置校验也失败（正常不会走到这里，validate 已拦下）
+            return {'ok': False, 'errors': list(ed.parse_errors)}
 
     def discard(self) -> None:
         """撤销所有修改。"""
@@ -322,8 +329,8 @@ def main():
         # 示例 4：apply 批量
         print(f'\n[示例4] apply([ModSpec.by_text(...), ModSpec.by_index(...)])')
         n = plugin.apply([
-            ModSpec.by_text(c, 'L1', 'LEFT1'),
-            ModSpec.by_index(c, 3, '< 0.01'),
+            ModSpec.by_text(c, 'L1', '1'),
+            ModSpec.by_index(c, 3, '1'),
         ])
         print(f'  结果: {n} 个修改')
 
@@ -333,8 +340,13 @@ def main():
         print(text)
 
         # 保存
-        ok, msg = plugin.save(backup=False)
-        print(f'\n[保存] {msg}')
+        result = plugin.save(backup=False)
+        if result['ok']:
+            print(f'\n[保存] 成功')
+        else:
+            print(f'\n[保存] 失败 — {len(result["errors"])} 个语法错误')
+            for line, col, msg in result['errors'][:3]:
+                print(f'  [{line}:{col}] {msg}')
 
         plugin.discard()
 
