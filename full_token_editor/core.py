@@ -1,0 +1,221 @@
+"""TokenEditor — 主编辑器。"""
+
+import sys, os
+from typing import List, Dict, Any
+from datetime import datetime
+
+_PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(_PROJECT_DIR, 'grammar', 'gen'))
+
+from antlr4 import InputStream, CommonTokenStream
+from PVRSLexer import PVRSLexer
+from PVRSParser import PVRSParser as _PVRSParser
+from .collector import _ContainerBoundCollector, _ErrorCollector
+from .elements import TokenElement
+
+
+# ============================================================
+# TokenEditor
+# ============================================================
+
+class TokenEditor:
+    """
+    基于完整 token 流的 PVRS 元素修改器。
+
+    收集 RULE 和 derived_layer_def 内 op_statement 的直接子节点，
+    支持按编号或文本修改，修改后自动生成标注视图。
+    """
+
+    def __init__(self, filepath: str):
+        self.filepath = filepath
+        with open(filepath, 'r', encoding='utf-8', errors='replace', newline='') as f:
+            raw = f.read()
+
+        self._crlf = '\r\n' in raw
+        self._raw = raw
+        self.source = raw.replace('\r\n', '\n')
+
+        # ANTLR 解析
+        inp = InputStream(self.source)
+        lexer = PVRSLexer(inp)
+        self._token_stream = CommonTokenStream(lexer)
+        self._token_stream.fill()
+
+        parser = _PVRSParser(self._token_stream)
+        parser.removeErrorListeners()
+        err = _ErrorCollector()
+        parser.addErrorListener(err)
+        self._tree = parser.pvrFile()
+        self._parse_errors = err.errors
+
+        # 收集
+        collector = _ContainerBoundCollector(self.source)
+        collector.visit(self._tree)
+        self._containers = collector.containers
+
+        self._tokens: List[TokenElement] = collector.elements
+        self._container_tokens: Dict[str, List[TokenElement]] = {}
+        self._build_token_index()
+
+    def _build_token_index(self):
+        for te in self._tokens:
+            name = te.container
+            if name not in self._container_tokens:
+                self._container_tokens[name] = []
+            te2 = te
+            te2.index = len(self._container_tokens[name]) + 1
+            self._container_tokens[name].append(te2)
+
+    # ---- 属性 ----
+
+    @property
+    def parse_errors(self) -> list:
+        return list(self._parse_errors)
+
+    @property
+    def has_errors(self) -> bool:
+        return len(self._parse_errors) > 0
+
+    @property
+    def container_names(self) -> List[str]:
+        return [c['name'] for c in self._containers]
+
+    def containers(self) -> List[Dict[str, Any]]:
+        result = []
+        for c in self._containers:
+            name = c['name']
+            count = len(self._container_tokens.get(name, []))
+            types = sorted(set(
+                t.type_name for t in self._container_tokens.get(name, [])
+            ))
+            result.append({
+                'name': name, 'kind': c['kind'], 'line': c['line'],
+                'count': count, 'types': types,
+            })
+        return result
+
+    def tokens(self, container: str) -> List[TokenElement]:
+        return list(self._container_tokens.get(container, []))
+
+    def all_tokens(self) -> List[TokenElement]:
+        return list(self._tokens)
+
+    def container_text(self, container: str) -> str:
+        for c in self._containers:
+            if c['name'] == container:
+                return self.source[c['char_start']:c['char_stop'] + 1]
+        return ''
+
+    # ---- 修改 ----
+
+    def replace_by_text(self, container: str, old_text: str,
+                        new_text: str) -> bool:
+        ts = self.tokens(container)
+        matched = [t for t in ts if t.text == old_text]
+        if not matched:
+            return False
+        for t in matched:
+            t._new_text = new_text
+        return True
+
+    def replace_by_index(self, container: str, index: int,
+                         new_text: str) -> bool:
+        ts = self.tokens(container)
+        if index < 1 or index > len(ts):
+            return False
+        ts[index - 1]._new_text = new_text
+        return True
+
+    def pending_tokens(self) -> List[TokenElement]:
+        return [t for t in self._tokens if t.modified]
+
+    def clear_changes(self):
+        for t in self._tokens:
+            if t.modified:
+                del t._new_text
+
+    # ---- 标注视图 ----
+
+    def annotated_text(self, container: str) -> str:
+        ts = self.tokens(container)
+        if not ts:
+            return self.container_text(container)
+
+        text = self.container_text(container)
+        bounds_start = None
+        for c in self._containers:
+            if c['name'] == container:
+                bounds_start = c['char_start']
+                break
+        if bounds_start is None:
+            return text
+
+        for t in reversed(ts):
+            local_start = t.char_start - bounds_start
+            local_stop = t.char_stop - bounds_start
+            effective = t.new_text if t.modified else t.text
+            marker = f'<<{t.index}:{effective}>>'
+            text = text[:local_start] + marker + text[local_stop + 1:]
+        return text
+
+    def annotated_legend(self, container: str) -> str:
+        ts = self.tokens(container)
+        if not ts:
+            return ''
+        max_type = max(len(t.type_name) for t in ts)
+        lines = [f'--- Token 编号说明（{len(ts)} 个）---']
+        for t in ts:
+            m = ' [已修改]' if t.modified else ''
+            lines.append(
+                f'  <<{t.index}>> {t.type_name:<{max_type}}  '
+                f'{t.text!r}{m}  (第 {t.line} 行)'
+            )
+        return '\n'.join(lines)
+
+    # ---- 校验保存 ----
+
+    def check(self) -> dict:
+        return {
+            'ok': not self.has_errors,
+            'errors': self.parse_errors,
+            'container_count': len(self._containers),
+            'token_count': len(self._tokens),
+            'containers': self.containers(),
+        }
+
+    def save(self, output_path: str = None, backup: bool = True) -> dict:
+        text = self.source
+        changes = sorted(self.pending_tokens(), key=lambda t: -t.char_start)
+        for t in changes:
+            text = (text[:t.char_start] + t.new_text +
+                    text[t.char_stop + 1:])
+
+        errors = self._validate_text(text)
+        if errors:
+            return {'ok': False, 'errors': errors}
+
+        if self._crlf:
+            text = text.replace('\n', '\r\n')
+
+        target = output_path or self.filepath
+        if backup and target == self.filepath:
+            ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+            bak = f'{self.filepath}.{ts}.bak'
+            with open(bak, 'w', encoding='utf-8', newline='') as f:
+                f.write(self._raw)
+
+        with open(target, 'w', encoding='utf-8', newline='') as f:
+            f.write(text)
+        return {'ok': True, 'errors': []}
+
+    def _validate_text(self, text: str) -> list:
+        stream = InputStream(text)
+        lexer = PVRSLexer(stream)
+        tstream = CommonTokenStream(lexer)
+        tstream.fill()
+        parser = _PVRSParser(tstream)
+        parser.removeErrorListeners()
+        err = _ErrorCollector()
+        parser.addErrorListener(err)
+        parser.pvrFile()
+        return err.errors
