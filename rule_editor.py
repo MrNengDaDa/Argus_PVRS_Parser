@@ -559,11 +559,39 @@ class RuleEditor:
             e.clear_change()
         self._changes = []
 
+    # ======== 校验 ========
+
+    def validate(self) -> list:
+        """
+        对修改后的文本执行 ANTLR 语法解析，返回语法错误列表。
+
+        返回 [(line, col, msg), ...]，空列表表示语法正确。
+
+        该方法不会修改任何内部状态（changes 保留）。
+        可供用户在 save() 前手动检查。
+        """
+        text = self.modified_text()
+        if not self._changes:
+            return []
+
+        stream = InputStream(text)
+        lexer = PVRSLexer(stream)
+        token_stream = CommonTokenStream(lexer)
+        parser = _PVRSParser(token_stream)
+        parser.removeErrorListeners()
+        err_listener = _ParseErrorCollector()
+        parser.addErrorListener(err_listener)
+        parser.pvrFile()
+        return err_listener.errors
+
     # ======== 保存 ========
 
     def save(self, output_path: Optional[str] = None, backup: bool = True):
         """
         将修改后的文本写入磁盘。
+
+        写入前自动执行语法校验。如果修改后的文本有语法错误，
+        会抛出 SyntaxError 并保留所有暂存修改，方便修正后重试。
 
         参数
         ----
@@ -573,6 +601,10 @@ class RuleEditor:
                             备份文件命名：<原文件名>.<时间戳>.bak
                             仅当覆盖原文件时才创建备份。
 
+        异常
+        ----
+        SyntaxError – 修改后的文本存在语法错误，保存被拒绝
+
         换行符处理
         ----------
         内部统一使用 LF。保存时如果原始文件是 CRLF，自动恢复。
@@ -580,14 +612,26 @@ class RuleEditor:
         """
         from datetime import datetime
 
+        # ---- 语法校验 ----
+        errors = self.validate()
+        if errors:
+            msgs = []
+            for line, col, msg in errors[:5]:
+                msgs.append(f'  line {line}:{col} -> {msg}')
+            if len(errors) > 5:
+                msgs.append(f'  ... 还有 {len(errors) - 5} 个错误')
+            raise SyntaxError(
+                f'修改后的文本存在 {len(errors)} 个语法错误，保存已被拒绝。'
+                f'修改已保留，请修正后重试。\n' + '\n'.join(msgs)
+            )
+
+        # ---- 通过校验，写入 ----
         text = self.modified_text()
         if self._crlf:
             text = text.replace('\n', '\r\n')
 
-        # 确定输出路径
         target = output_path or self.filepath
 
-        # 覆盖原文件时创建带时间戳的备份
         if backup and target == self.filepath:
             ts = datetime.now().strftime('%Y%m%d_%H%M%S')
             bak_path = f'{self.filepath}.{ts}.bak'

@@ -321,38 +321,51 @@ def main():
           f'{", ".join(t["label"] for t in get_element_types())}')
     print()
 
-    # ---- 第二步：交互主循环 ----
+    # ---- 第二步 + 第三步：修改 + 校验保存 ----
+    retry_from_error = False
     while True:
-        rule_name = show_rules(editor)
-        if rule_name is None:
-            print('退出。')
+        if not retry_from_error:
+            rule_name = show_rules(editor)
+            if rule_name is None:
+                print('退出。')
+                break
+
+            elems = editor.elements_by_rule(rule_name)
+            modify_element(editor, elems)
+
+            try:
+                ans = input('\n是否继续修改其他 RULE? (y/n): ').strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print()
+                break
+            if ans in ('y', 'yes'):
+                retry_from_error = False
+                continue
+        else:
+            # 校验失败后返回修改：直接进入 RULE 选择
+            retry_from_error = False
+
+        # ---- 确认并保存 ----
+        output_path = confirm_save(editor, filepath)
+        if output_path is None:
+            print('修改已丢弃。')
             break
 
-        # 标注视图已展示编号和类型，直接进入修改循环
-        elems = editor.elements_by_rule(rule_name)
-        modify_element(editor, elems)
-
-        # 询问是否继续修改其他 RULE
         try:
-            ans = input('\n是否继续修改其他 RULE? (y/n): ').strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            print()
+            editor.save(output_path=output_path if output_path != filepath else None)
+            print(f'已保存: {output_path or filepath}')
+            if output_path == filepath or not output_path:
+                backups = sorted(glob.glob(f'{filepath}.*.bak'))
+                if backups:
+                    print(f'备份: {backups[-1]}')
             break
-        if ans not in ('y', 'yes'):
-            break
-
-    # ---- 第三步：确认并保存 ----
-    output_path = confirm_save(editor, filepath)
-    if output_path is not None:
-        editor.save(output_path=output_path if output_path != filepath else None)
-        print(f'已保存: {output_path or filepath}')
-        if output_path == filepath or not output_path:
-            # 覆盖原文件时会创建时间戳备份
-            backups = sorted(glob.glob(f'{filepath}.*.bak'))
-            if backups:
-                print(f'备份: {backups[-1]}')
-    else:
-        print('修改已丢弃。')
+        except SyntaxError as e:
+            print(f'\n  {e}')
+            ans = input('\n  返回修改? (y/n): ').strip().lower()
+            if ans not in ('y', 'yes'):
+                print('修改已丢弃。')
+                break
+            retry_from_error = True
 
 
 if __name__ == '__main__':
