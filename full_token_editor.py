@@ -157,9 +157,12 @@ class _ContainerBoundCollector(PVRSParserVisitor):
             if cls_name == 'Op_statementContext':
                 continue  # 跳过嵌套的 op_statementContext wrapper
 
-            # 收集该操作节点的直接 children
+            # 收集该操作节点的直接 children（跳过不可修改的括号）
             for gc in op_child.children:
                 if gc is None:
+                    continue
+                # 跳过括号 token (LPAREN/RPAREN/LBRACK/RBRACK)，不允许修改
+                if self._is_bracket(gc):
                     continue
                 text, cstart, cstop, line = self._node_span(gc)
                 if text is None:
@@ -174,6 +177,22 @@ class _ContainerBoundCollector(PVRSParserVisitor):
 
         self.visitChildren(ctx)
         return None
+
+    def _is_bracket(self, node) -> bool:
+        """检查节点是否为不可修改的括号 token（( ) [ ]）。"""
+        from antlr4.Token import CommonToken
+        from antlr4.tree.Tree import TerminalNodeImpl
+        if isinstance(node, TerminalNodeImpl):
+            ttype = node.symbol.type
+        elif isinstance(node, CommonToken):
+            ttype = node.type
+        else:
+            return False
+        bracket_types = {
+            PVRSLexer.LPAREN, PVRSLexer.RPAREN,
+            PVRSLexer.LBRACK, PVRSLexer.RBRACK,
+        }
+        return ttype in bracket_types
 
     def _node_span(self, node):
         """返回 (text, char_start, char_stop, line) 或 (None,...)。"""
@@ -613,7 +632,7 @@ def main():
         print(f'  结果: {ok}')
 
         print(f'\n[示例2] replace_by_index — 按编号替换')
-        ok = plugin.replace_by_index(c, 3, 'M99')
+        ok = plugin.replace_by_index(c, 4, 'M99')
         print(f'  结果: {ok}')
 
         print(f'\n[示例3] 标注视图:')
@@ -625,7 +644,7 @@ def main():
         if result['ok']:
             print(f'\n[保存] 成功')
         else:
-            print(f'\n[保存] 失败 — {len(result["errors"])} 个错误')
+            print(f'\n[保存] 失败 — {len(result["errors"])} 个错误: {result["errors"]}')
         plugin.discard()
 
 
