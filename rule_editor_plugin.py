@@ -39,25 +39,39 @@ from rule_editor import RuleEditor, Element
 
 class ModSpec:
     """
-    一条修改指令：在指定容器中查找匹配元素并替换。
+    一条修改指令。支持两种匹配模式：
 
-    参数
+    - 按文本匹配：by_text
+    - 按索引匹配：by_index（对应 annotated_legend 中的 <<N>> 编号）
+
+    用法
     ----
-    container : str         – 容器名（RULE 名 或 赋值名）
-    old_text  : str         – 要匹配的原文
-    new_text  : str         – 替换为
-    element_type : str|None – 限制元素类型，None = 不限
+        ModSpec.by_text("chk1", "M1", "METAL1", element_type="layerRef")
+        ModSpec.by_index("chk1", 2, "METAL1")  # 修改编号 <<2>> 的元素
     """
-    def __init__(self, container: str, old_text: str, new_text: str,
+    def __init__(self, container: str, mode: str, match, new_text: str,
                  element_type: str = None):
         self.container = container
-        self.old_text = old_text
+        self.mode = mode              # 'text' | 'index'
+        self.match = match            # str (for text) | int (for index)
         self.new_text = new_text
         self.element_type = element_type
 
+    @classmethod
+    def by_text(cls, container: str, old_text: str, new_text: str,
+                element_type: str = None) -> 'ModSpec':
+        """按文本匹配创建修改指令。"""
+        return cls(container, 'text', old_text, new_text, element_type)
+
+    @classmethod
+    def by_index(cls, container: str, index: int, new_text: str) -> 'ModSpec':
+        """按 annotated_legend 中的 <<N>> 编号创建修改指令。"""
+        return cls(container, 'index', index, new_text)
+
     def __repr__(self):
         t = f' ({self.element_type})' if self.element_type else ''
-        return f'{self.container}{t}: {self.old_text!r} -> {self.new_text!r}'
+        mode = f'[#{self.match}]' if self.mode == 'index' else repr(self.match)
+        return f'{self.container}{t}: {mode} -> {self.new_text!r}'
 
 
 # ============================================================
@@ -134,15 +148,15 @@ class RuleEditorPlugin:
         return (ed.annotated_text(container),
                 ed.annotated_legend(container))
 
-    def replace(self, container: str, old_text: str, new_text: str,
-                element_type: str = None) -> int:
+    def replace_by_text(self, container: str, old_text: str, new_text: str,
+                         element_type: str = None) -> int:
         """
-        在指定容器中查找匹配元素并替换。
+        在指定容器中查找文本匹配的元素并全部替换。
 
         参数
         ----
         container    : str       – 容器名
-        old_text     : str       – 要匹配的原文
+        old_text     : str       – 要匹配的原文（精确比较）
         new_text     : str       – 新文本
         element_type : str|None  – 类型过滤，None = 不限
 
@@ -158,17 +172,44 @@ class RuleEditorPlugin:
             self._editor.add_change(e, new_text)
         return len(matched)
 
+    def replace_by_index(self, container: str, index: int,
+                         new_text: str) -> bool:
+        """
+        按 annotated_legend 中的 <<N>> 编号修改单个元素。
+
+        参数
+        ----
+        container : str  – 容器名
+        index     : int  – 编号（1 起始，对应标注视图中的 <<N>>）
+        new_text  : str  – 新文本
+
+        返回
+        ----
+        bool – True 表示修改成功，False 表示索引越界
+        """
+        elems = self._editor.elements_by_rule(container)
+        if index < 1 or index > len(elems):
+            return False
+        self._editor.add_change(elems[index - 1], new_text)
+        return True
+
     def apply(self, specs: list) -> int:
         """
-        批量应用修改指令。
+        批量应用修改指令。自动根据 ModSpec.mode 选择匹配方式。
 
         参数 specs : list[ModSpec]，返回修改总数。
         """
         total = 0
         for spec in specs:
-            n = self.replace(spec.container, spec.old_text,
-                             spec.new_text, spec.element_type)
-            total += n
+            if spec.mode == 'index':
+                ok = self.replace_by_index(spec.container, spec.match,
+                                           spec.new_text)
+                if ok:
+                    total += 1
+            else:
+                n = self.replace_by_text(spec.container, spec.match,
+                                         spec.new_text, spec.element_type)
+                total += n
         return total
 
     def save(self, output_path: str = None, backup: bool = True) -> tuple:
@@ -247,7 +288,6 @@ def main():
             print(f'\n=== {name} ({len(elems)} elements) ===')
             for e in elems:
                 print(f'  {e}')
-
 
 if __name__ == '__main__':
     main()
