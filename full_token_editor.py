@@ -136,7 +136,7 @@ class _ContainerBoundCollector(PVRSParserVisitor):
             cls = cls[:-7]
         return cls
 
-    # ---- 收集 op_statement 的孙节点 ----
+    # ---- 收集 op_statement 的子节点 ----
 
     def visitOp_statement(self, ctx):
         container = self._container_name(ctx)
@@ -204,16 +204,31 @@ class _ContainerBoundCollector(PVRSParserVisitor):
         return None
 
     def visitDerived_layer_def(self, ctx):
-        # 仅收集不在 RULE 内部的 derived_layer_def
+        lr = ctx.layerRef()
+
+        # 无论是在 RULE 内部还是外部，都收集左侧 layerRef 为元素
+        container = self._container_name(ctx)
+        if container and lr and lr.start and lr.stop:
+            text = self.source[lr.start.start:lr.stop.stop + 1]
+            idx = len(self.elements) + 1
+            self.elements.append(TokenElement(
+                token=None, container=container, idx=idx,
+                source=self.source,
+                _text=text, _type='layerRef',
+                _start=lr.start.start, _stop=lr.stop.stop,
+                _line=lr.start.line,
+            ))
+
+        # 仅不在 RULE 内部的 derived_layer_def 才注册为独立容器
         node = ctx.parentCtx
+        inside_rule = False
         while node:
             if isinstance(node, _PVRSParser.Rule_statementContext):
-                self.visitChildren(ctx)
-                return None
+                inside_rule = True
+                break
             node = node.parentCtx
 
-        lr = ctx.layerRef()
-        if lr and lr.start and ctx.start:
+        if not inside_rule and lr and lr.start and ctx.start:
             name = self.source[lr.start.start:lr.stop.stop + 1]
             self.containers.append({
                 'name': name,
