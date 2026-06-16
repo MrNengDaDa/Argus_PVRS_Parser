@@ -30,10 +30,6 @@ dev = [
 ]
 
 [project.scripts]
-pvrs-expand-macros = "expand_macros:main"
-pvrs-count-keywords = "count_keywords:main"
-pvrs-extract-keywords = "extract_keyword_lines:main"
-pvrs-modify-rules = "modify_rules:main"
 full-token-editor = "full_token_editor.cli:main"
 
 [project.urls]
@@ -41,9 +37,3 @@ Homepage = "https://github.com/MrNengDaDa/Argus_PVRS_Parser"
 
 [tool.setuptools]
 packages = ["full_token_editor"]
-py-modules = [
-    "rule_editor", "rule_editor_plugin",
-    "expand_macros", "count_keywords",
-    "extract_keyword_lines", "modify_rules",
-    "pvrs_utils",
-]
