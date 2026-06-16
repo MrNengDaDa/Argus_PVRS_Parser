@@ -52,16 +52,24 @@ from PVRSParserVisitor import PVRSParserVisitor
 # ============================================================
 
 class TokenElement:
-    """一个 ANTLR token 元素。"""
-    def __init__(self, token: CommonToken, container: str, idx: int,
-                 source: str):
-        self.text = token.text or ''          # token 原文
-        self.type_name = _token_type_name(token.type)  # 类型名（如 ID、MUL）
-        self.line = token.line                 # 行号
-        self.char_start = token.start          # 源文本起始偏移
-        self.char_stop = token.stop            # 源文本结束偏移
-        self.container = container             # 所属容器名
-        self.index = idx                       # 1 起始的容器内编号
+    """op_statement 直接子节点的一个元素。"""
+
+    def __init__(self, token=None, container='', idx=0,
+                 source='', _text=None, _type='', _start=0, _stop=0, _line=0):
+        if token is not None:
+            self.text = token.text or ''
+            self.type_name = _token_type_name(token.type)
+            self.line = token.line
+            self.char_start = token.start
+            self.char_stop = token.stop
+        else:
+            self.text = _text or ''
+            self.type_name = _type
+            self.line = _line
+            self.char_start = _start
+            self.char_stop = _stop
+        self.container = container
+        self.index = idx
 
     @property
     def modified(self) -> bool:
@@ -84,22 +92,102 @@ class TokenElement:
 
 class _ContainerBoundCollector(PVRSParserVisitor):
     """
-    收集所有容器的 token 范围，同时记录 op_statement 的 char 范围。
-    只收集 op_statement 内部的 token，跳过容器声明行和赋值左侧。
+    收集容器的 token 范围 + op_statement 直接子节点的元素。
+
+    收集粒度：op_statement 的每个子节点（几何操作、dim check 等）
+    的直接 children，不再向下递归。例如 geomInteract 的 children：
+        ~  geom_interact  (  layer1  layer2  > 0.5  )
+    每个 token / rule context 对应一个 Element。
     """
 
     def __init__(self, source: str):
         self.source = source
         self.containers: List[Dict[str, Any]] = []
-        self._op_ranges: List[tuple] = []  # [(char_start, char_stop), ...]
+        self.elements: List[TokenElement] = []  # 替代 _op_ranges
 
-    # ---- 记录 op_statement 范围 ----
+    # ---- 辅助 ----
+
+    def _container_name(self, ctx) -> Optional[str]:
+        """从节点向上找到所属容器名。RULE 优先于 derived_layer_def。"""
+        node = ctx
+        found_def = None
+        while node:
+            if isinstance(node, _PVRSParser.Rule_statementContext):
+                rn = node.ruleName()
+                return rn.getText() if rn else None
+            if isinstance(node, _PVRSParser.Derived_layer_defContext):
+                if found_def is None:
+                    lr = node.layerRef()
+                    if lr and lr.start:
+                        found_def = self.source[lr.start.start:lr.stop.stop + 1]
+            node = node.parentCtx
+        return found_def
+
+    def _context_type_name(self, node) -> str:
+        """返回节点的类型名（token type name 或 rule context class name）。"""
+        from antlr4.Token import CommonToken
+        from antlr4.tree.Tree import TerminalNodeImpl
+        if isinstance(node, TerminalNodeImpl):
+            return _token_type_name(node.symbol.type)
+        if isinstance(node, CommonToken):
+            return _token_type_name(node.type)
+        cls = type(node).__name__
+        if cls.endswith('Context'):
+            cls = cls[:-7]
+        return cls
+
+    # ---- 收集 op_statement 的孙节点 ----
 
     def visitOp_statement(self, ctx):
-        if ctx.start and ctx.stop:
-            self._op_ranges.append((ctx.start.start, ctx.stop.stop))
+        container = self._container_name(ctx)
+        if not container:
+            self.visitChildren(ctx)
+            return None
+
+        # op_statement 的直接子节点（操作的具体类型，如 WidthCheck）
+        for op_child in (ctx.children or []):
+            if op_child is None:
+                continue
+            from antlr4.tree.Tree import TerminalNodeImpl
+            if isinstance(op_child, TerminalNodeImpl):
+                continue  # 跳过 terminal（正常不会有）
+            if not hasattr(op_child, 'children') or op_child.children is None:
+                continue
+            cls_name = type(op_child).__name__
+            if cls_name == 'Op_statementContext':
+                continue  # 跳过嵌套的 op_statementContext wrapper
+
+            # 收集该操作节点的直接 children
+            for gc in op_child.children:
+                if gc is None:
+                    continue
+                text, cstart, cstop, line = self._node_span(gc)
+                if text is None:
+                    continue
+                idx = len(self.elements) + 1
+                self.elements.append(TokenElement(
+                    token=None, container=container, idx=idx,
+                    source=self.source,
+                    _text=text, _type=self._context_type_name(gc),
+                    _start=cstart, _stop=cstop, _line=line,
+                ))
+
         self.visitChildren(ctx)
         return None
+
+    def _node_span(self, node):
+        """返回 (text, char_start, char_stop, line) 或 (None,...)。"""
+        from antlr4.Token import CommonToken
+        from antlr4.tree.Tree import TerminalNodeImpl
+        if isinstance(node, TerminalNodeImpl):
+            sym = node.symbol
+            return (sym.text or '', sym.start, sym.stop, sym.line)
+        if isinstance(node, CommonToken):
+            return (node.text or '', node.start, node.stop, node.line)
+        if hasattr(node, 'start') and node.start and node.stop:
+            return (self.source[node.start.start:node.stop.stop + 1],
+                    node.start.start, node.stop.stop, node.start.line)
+        return (None, 0, 0, 0)
 
     # ---- 记录容器边界 ----
 
@@ -107,10 +195,7 @@ class _ContainerBoundCollector(PVRSParserVisitor):
         name = ctx.ruleName().getText() if ctx.ruleName() else ''
         if name and ctx.start is not None:
             self.containers.append({
-                'name': name,
-                'kind': 'RULE',
-                'token_start': ctx.start.tokenIndex,
-                'token_stop': ctx.stop.tokenIndex if ctx.stop else ctx.start.tokenIndex,
+                'name': name, 'kind': 'RULE',
                 'char_start': ctx.start.start,
                 'char_stop': ctx.stop.stop if ctx.stop else ctx.start.stop,
                 'line': ctx.start.line,
@@ -209,48 +294,25 @@ class TokenEditor:
         self._tree = parser.pvrFile()
         self._parse_errors = err.errors
 
-        # 收集容器边界 + op_statement 范围
+        # 收集容器边界 + op_statement 子节点元素
         collector = _ContainerBoundCollector(self.source)
         collector.visit(self._tree)
         self._containers = collector.containers
-        self._op_ranges = collector._op_ranges   # op_statement 的 char 范围
 
-        # 为每个容器收集 token
-        self._tokens: List[TokenElement] = []
+        # 按容器分组 element
+        self._tokens: List[TokenElement] = collector.elements
         self._container_tokens: Dict[str, List[TokenElement]] = {}
         self._build_token_index()
 
     def _build_token_index(self):
-        """将 token 流按容器范围分配，仅收集 op_statement 内部的 token。"""
-        all_tokens = self._token_stream.tokens
-
-        def _in_op_range(cs: int, ce: int) -> bool:
-            """检查 token 的 char 范围是否在任何 op_statement 内。"""
-            for s, e in self._op_ranges:
-                if s <= cs and ce <= e:
-                    return True
-            return False
-
-        for c in self._containers:
-            name = c['name']
-            tstart = c['token_start']
-            tstop = c['token_stop']
-            container_tokens = []
-            for t in all_tokens:
-                if t.channel != 0:
-                    continue
-                if t.type == -1:
-                    continue
-                if not (tstart <= t.tokenIndex <= tstop):
-                    continue
-                # 只收集 op_statement 内的 token
-                if not _in_op_range(t.start, t.stop):
-                    continue
-                idx = len(container_tokens) + 1
-                te = TokenElement(t, name, idx, self.source)
-                container_tokens.append(te)
-            self._container_tokens[name] = container_tokens
-            self._tokens.extend(container_tokens)
+        """将 Element 按容器名分组，并重新分配容器内编号。"""
+        for te in self._tokens:
+            name = te.container
+            if name not in self._container_tokens:
+                self._container_tokens[name] = []
+            te2 = te
+            te2.index = len(self._container_tokens[name]) + 1
+            self._container_tokens[name].append(te2)
 
     # ---- 属性 ----
 
