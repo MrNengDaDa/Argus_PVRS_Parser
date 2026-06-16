@@ -83,11 +83,25 @@ class TokenElement:
 # ============================================================
 
 class _ContainerBoundCollector(PVRSParserVisitor):
-    """收集所有容器的 token 范围。"""
+    """
+    收集所有容器的 token 范围，同时记录 op_statement 的 char 范围。
+    只收集 op_statement 内部的 token，跳过容器声明行和赋值左侧。
+    """
 
     def __init__(self, source: str):
         self.source = source
-        self.containers: List[Dict[str, Any]] = []  # [{name, kind, start, stop, line}]
+        self.containers: List[Dict[str, Any]] = []
+        self._op_ranges: List[tuple] = []  # [(char_start, char_stop), ...]
+
+    # ---- 记录 op_statement 范围 ----
+
+    def visitOp_statement(self, ctx):
+        if ctx.start and ctx.stop:
+            self._op_ranges.append((ctx.start.start, ctx.stop.stop))
+        self.visitChildren(ctx)
+        return None
+
+    # ---- 记录容器边界 ----
 
     def visitRule_statement(self, ctx):
         name = ctx.ruleName().getText() if ctx.ruleName() else ''
@@ -195,10 +209,11 @@ class TokenEditor:
         self._tree = parser.pvrFile()
         self._parse_errors = err.errors
 
-        # 收集容器边界
+        # 收集容器边界 + op_statement 范围
         collector = _ContainerBoundCollector(self.source)
         collector.visit(self._tree)
         self._containers = collector.containers
+        self._op_ranges = collector._op_ranges   # op_statement 的 char 范围
 
         # 为每个容器收集 token
         self._tokens: List[TokenElement] = []
@@ -206,22 +221,34 @@ class TokenEditor:
         self._build_token_index()
 
     def _build_token_index(self):
-        """将 token 流按容器范围分配到各容器。"""
+        """将 token 流按容器范围分配，仅收集 op_statement 内部的 token。"""
         all_tokens = self._token_stream.tokens
+
+        def _in_op_range(cs: int, ce: int) -> bool:
+            """检查 token 的 char 范围是否在任何 op_statement 内。"""
+            for s, e in self._op_ranges:
+                if s <= cs and ce <= e:
+                    return True
+            return False
+
         for c in self._containers:
             name = c['name']
             tstart = c['token_start']
             tstop = c['token_stop']
             container_tokens = []
             for t in all_tokens:
-                if t.channel != 0:           # 跳过隐藏通道（空白、注释）
+                if t.channel != 0:
                     continue
-                if t.type == -1:             # EOF
+                if t.type == -1:
                     continue
-                if tstart <= t.tokenIndex <= tstop:
-                    idx = len(container_tokens) + 1
-                    te = TokenElement(t, name, idx, self.source)
-                    container_tokens.append(te)
+                if not (tstart <= t.tokenIndex <= tstop):
+                    continue
+                # 只收集 op_statement 内的 token
+                if not _in_op_range(t.start, t.stop):
+                    continue
+                idx = len(container_tokens) + 1
+                te = TokenElement(t, name, idx, self.source)
+                container_tokens.append(te)
             self._container_tokens[name] = container_tokens
             self._tokens.extend(container_tokens)
 
