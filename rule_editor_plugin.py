@@ -162,15 +162,17 @@ class RuleEditorPlugin:
 
         返回
         ----
-        int – 修改的元素个数
+        bool – True 表示找到并修改了元素，False 表示无匹配
         """
         elems = self._editor.elements_by_rule(container)
         if element_type:
             elems = [e for e in elems if e.element_type == element_type]
         matched = [e for e in elems if e.text == old_text]
+        if not matched:
+            return False
         for e in matched:
             self._editor.add_change(e, new_text)
-        return len(matched)
+        return True
 
     def replace_by_index(self, container: str, index: int,
                          new_text: str) -> bool:
@@ -202,14 +204,13 @@ class RuleEditorPlugin:
         total = 0
         for spec in specs:
             if spec.mode == 'index':
-                ok = self.replace_by_index(spec.container, spec.match,
-                                           spec.new_text)
-                if ok:
+                if self.replace_by_index(spec.container, spec.match,
+                                         spec.new_text):
                     total += 1
             else:
-                n = self.replace_by_text(spec.container, spec.match,
-                                         spec.new_text, spec.element_type)
-                total += n
+                if self.replace_by_text(spec.container, spec.match,
+                                        spec.new_text, spec.element_type):
+                    total += 1
         return total
 
     def save(self, output_path: str = None, backup: bool = True) -> tuple:
@@ -288,6 +289,54 @@ def main():
             print(f'\n=== {name} ({len(elems)} elements) ===')
             for e in elems:
                 print(f'  {e}')
+
+    # --sample 参数：在所有容器上运行修改示例
+    if '--sample' in sys.argv:
+        print('\n========== 修改示例 ==========\n')
+
+        # 拿到第一个容器名
+        containers = plugin.editor.rule_names()
+        if not containers:
+            print('没有可演示的容器。')
+            sys.exit(0)
+        c = containers[0]
+
+        # 示例 1：按文本批量替换
+        print(f'[示例1] replace_by_text("{c}", ...) ')
+        ok = plugin.replace_by_text(c, 'M1', 'METAL1')
+        print(f'  结果: {ok}  (True=成功)')
+        if ok:
+            _, legend = plugin.show(c)
+            print(legend)
+
+        # 示例 2：按文本 + 类型过滤
+        print(f'\n[示例2] replace_by_text("{c}", "< 0.5", "< 1.0", element_type="constraint")')
+        ok = plugin.replace_by_text(c, '< 0.5', '< 1.0', element_type='constraint')
+        print(f'  结果: {ok}')
+
+        # 示例 3：按索引修改
+        print(f'\n[示例3] replace_by_index("{c}", 2, "M99")')
+        ok = plugin.replace_by_index(c, 2, 'M99')
+        print(f'  结果: {ok}')
+
+        # 示例 4：apply 批量
+        print(f'\n[示例4] apply([ModSpec.by_text(...), ModSpec.by_index(...)])')
+        n = plugin.apply([
+            ModSpec.by_text(c, 'L1', 'LEFT1'),
+            ModSpec.by_index(c, 3, '< 0.01'),
+        ])
+        print(f'  结果: {n} 个修改')
+
+        # 展示最终修改后的视图
+        print(f'\n[结果] 共 {plugin.pending_count} 项暂存修改：')
+        text, legend = plugin.show(c)
+        print(text)
+
+        # 保存
+        ok, msg = plugin.save(backup=False)
+        print(f'\n[保存] {msg}')
+
+        plugin.discard()
 
 if __name__ == '__main__':
     main()
