@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "argus-pvrs-parser"
+version = "1.0.0"
+description = "ANTLR4-based parser and editor for Argus PVRS (Physical Verification Rule Set) files"
+readme = "API.md"
+requires-python = ">=3.9"
+license = "MIT"
+authors = [{name = "MrNengDaDa"}]
+keywords = ["pvrs", "drc", "lvs", "argus", "eda", "parser", "antlr"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "antlr4-python3-runtime==4.9.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pyinstaller>=6",
+]
+
+[project.scripts]
+pvrs-expand-macros = "expand_macros:main"
+pvrs-count-keywords = "count_keywords:main"
+pvrs-extract-keywords = "extract_keyword_lines:main"
+pvrs-modify-rules = "modify_rules:main"
+full-token-editor = "full_token_editor.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/MrNengDaDa/Argus_PVRS_Parser"
+
+[tool.setuptools]
+packages = ["full_token_editor"]
+py-modules = [
+    "rule_editor", "rule_editor_plugin",
+    "expand_macros", "count_keywords",
+    "extract_keyword_lines", "modify_rules",
+    "pvrs_utils",
+]
