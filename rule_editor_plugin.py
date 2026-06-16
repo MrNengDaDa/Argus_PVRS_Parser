@@ -101,36 +101,38 @@ class RuleEditorPlugin:
 
     # ---- 操作 ----
 
-    def check(self) -> 'RuleEditorPlugin':
+    def check(self) -> dict:
         """
-        语法检查 + 打印摘要。有错误时打印详情但不中断。
+        语法检查并返回摘要信息。
 
-        返回 self 以支持链式调用。
+        返回
+        ----
+        dict – {
+            'ok': bool,
+            'errors': [(line, col, msg), ...],
+            'container_count': int,
+            'element_count': int,
+            'summaries': [RuleEditor.rule_summaries(), ...]
+        }
         """
         ed = self._editor
-        if ed.has_errors:
-            print(f'[语法错误] 发现 {len(ed.parse_errors)} 个错误：')
-            for line, col, msg in ed.parse_errors[:5]:
-                print(f'  [{line}:{col}] {msg}')
-            if len(ed.parse_errors) > 5:
-                print(f'  ... 还有 {len(ed.parse_errors) - 5} 个')
-        else:
-            print('[语法] 正确')
+        return {
+            'ok': not ed.has_errors,
+            'errors': list(ed.parse_errors),
+            'container_count': len(ed.rule_names()),
+            'element_count': len(ed.elements),
+            'summaries': ed.rule_summaries(),
+        }
 
-        print(f'[摘要] {len(ed.rule_names())} 个容器, '
-              f'{len(ed.elements)} 个元素')
-        for s in ed.rule_summaries():
-            print(f'  [{s["kind"]}] {s["name"]}: '
-                  f'{s["count"]} elements ({", ".join(s["types"])})')
-        return self
+    def show(self, container: str) -> tuple:
+        """
+        返回指定容器的标注视图和编号说明表。
 
-    def show(self, container: str) -> 'RuleEditorPlugin':
-        """打印指定容器的标注视图和编号说明表。"""
+        返回 (annotated_text, annotated_legend)
+        """
         ed = self._editor
-        print(f'=== {container} ===')
-        print(ed.annotated_text(container))
-        print(ed.annotated_legend(container))
-        return self
+        return (ed.annotated_text(container),
+                ed.annotated_legend(container))
 
     def replace(self, container: str, old_text: str, new_text: str,
                 element_type: str = None) -> int:
@@ -169,26 +171,25 @@ class RuleEditorPlugin:
             total += n
         return total
 
-    def save(self, output_path: str = None, backup: bool = True) -> bool:
+    def save(self, output_path: str = None, backup: bool = True) -> tuple:
         """
-        校验并保存。有语法错误则拒绝并返回 False，修改保留。
+        校验并保存。
 
-        返回 True 表示保存成功。
+        返回
+        ----
+        (ok: bool, message: str) – ok=True 表示保存成功。
+        失败时 message 包含错误详情，修改保留。
         """
         try:
             self._editor.save(output_path=output_path, backup=backup)
-            print(f'[已保存] {output_path or self.filepath}')
-            return True
+            return (True, f'Saved: {output_path or self.filepath}')
         except SyntaxError as e:
-            print(f'[拒绝] {e}')
-            print(f'[提示] 已暂存 {self.pending_count} 项修改，修正后重试')
-            return False
+            msg = str(e)
+            return (False, msg)
 
-    def discard(self) -> 'RuleEditorPlugin':
+    def discard(self) -> None:
         """撤销所有修改。"""
         self._editor.clear_changes()
-        print('[已撤销] 所有修改已丢弃')
-        return self
 
 
 # ============================================================
@@ -199,8 +200,8 @@ def main():
     if len(sys.argv) < 2:
         print('用法: python rule_editor_plugin.py <pvrs_file> [--show <容器名>]')
         print()
-        print('  / --show NAME   显示指定容器的标注视图')
-        print('  / --rule NAME   仅显示此容器的详情')
+        print('  --show NAME   显示指定容器的标注视图')
+        print('  --rule NAME   仅显示此容器的详情')
         sys.exit(1)
 
     filepath = sys.argv[1]
@@ -209,13 +210,33 @@ def main():
         sys.exit(1)
 
     plugin = RuleEditorPlugin(filepath)
-    plugin.check()
+
+    # 语法检查 + 摘要
+    info = plugin.check()
+    if info['ok']:
+        print('[语法] 正确')
+    else:
+        print(f'[语法错误] 发现 {len(info["errors"])} 个错误：')
+        for line, col, msg in info['errors'][:5]:
+            print(f'  [{line}:{col}] {msg}')
+        if len(info['errors']) > 5:
+            print(f'  ... 还有 {len(info["errors"]) - 5} 个')
+
+    print(f'[摘要] {info["container_count"]} 个容器, '
+          f'{info["element_count"]} 个元素')
+    for s in info['summaries']:
+        print(f'  [{s["kind"]}] {s["name"]}: '
+              f'{s["count"]} elements ({", ".join(s["types"])})')
 
     # --show 参数：显示标注视图
     if '--show' in sys.argv:
         idx = sys.argv.index('--show')
         if idx + 1 < len(sys.argv):
-            plugin.show(sys.argv[idx + 1])
+            name = sys.argv[idx + 1]
+            text, legend = plugin.show(name)
+            print(f'\n=== {name} ===')
+            print(text)
+            print(legend)
 
     # --rule 参数：仅显示一个容器的详情
     if '--rule' in sys.argv:
