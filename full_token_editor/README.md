@@ -309,87 +309,132 @@ te.save(output_path="output.pvrs", backup=False)
 
 ### 其他 API
 
-#### 属性
+---
 
-| 属性 | 类型 | 说明 |
-|------|------|------|
-| `parse_errors` | `[(line, col, msg), ...]` | 语法错误列表 |
-| `has_errors` | `bool` | 文件是否有语法错误 |
-| `container_names` | `[str, ...]` | 所有容器名列表 |
+#### `parse_errors`
+
+**功能**：返回原始文件的语法错误列表。
+
+**输入**：无
+
+**输出**：`[(line, col, msg), ...]`
+
+```python
+for line, col, msg in te.parse_errors:
+    print(f"[{line}:{col}] {msg}")
+```
+
+---
+
+#### `has_errors`
+
+**功能**：文件是否有语法错误。
+
+**输入**：无
+
+**输出**：`bool`
+
+```python
+if te.has_errors:
+    print("文件存在语法错误")
+```
+
+---
+
+#### `container_names`
+
+**功能**：所有容器名列表（RULE 名 + DEF 名）。
+
+**输入**：无
+
+**输出**：`[str, ...]`
 
 ```python
 print(te.container_names)
 # ['check_m1_width', 'check_m2_width', 'P1']
 ```
 
-#### 查询方法
+---
 
-##### `containers() → [dict, ...]`
+#### `containers()`
 
-容器摘要列表。
+**功能**：返回每个容器的摘要信息。
+
+**输入**：无
+
+**输出**：`[{name, kind, line, count, types}, ...]`
 
 ```python
 for c in te.containers():
     print(f"[{c['kind']}] {c['name']}: {c['count']} tokens")
 ```
 
-##### `tokens(container) → [TokenElement, ...]`
+---
 
-指定容器内的元素列表（按编号顺序）。
+#### `tokens(container)`
+
+**功能**：返回指定容器内的元素列表，按编号排序。
+
+**输入**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `container` | `str` | 容器名 |
+
+**输出**：`[TokenElement, ...]`
 
 ```python
 for t in te.tokens("chk1"):
     print(f"<<{t.index}>> [{t.type_name}] {t.text!r}")
 ```
 
-##### `all_tokens() → [TokenElement, ...]`
+---
 
-所有容器的所有元素。
+#### `all_tokens()`
 
-##### `container_text(container) → str`
+**功能**：返回所有容器的所有元素。
 
-容器原文（不含标注）。
+**输入**：无
+
+**输出**：`[TokenElement, ...]`
+
+```python
+for t in te.all_tokens():
+    print(f"[{t.container}] <<{t.index}>> {t.text!r}")
+```
+
+---
+
+#### `container_text(container)`
+
+**功能**：返回容器原始文本（不含标注标记）。
+
+**输入**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `container` | `str` | 容器名 |
+
+**输出**：`str`
 
 ```python
 print(te.container_text("chk1"))
+# "RULE chk1 {\n   L1 = width ( M1 ...\n}"
 ```
 
-#### 其他修改方法
+---
 
-##### `clear_changes()`
+#### `clear_changes()`
 
-撤销所有暂存的修改，恢复原始状态。
+**功能**：撤销所有暂存修改，恢复原始状态。
+
+**输入**：无
+
+**输出**：无
 
 ```python
 te.clear_changes()
 print(len(te.pending_tokens()))  # 0
-```
-
-
-## TokenEditorPlugin
-
-TokenEditor 的便捷包装，接口与 `RuleEditorPlugin` 一致。
-
-| 方法 | 返回 | 说明 |
-|------|------|------|
-| `plugin.check()` | `dict` | 语法检查 + 摘要 |
-| `plugin.show(name)` | `(annotated_text, legend)` | 标注视图 + 编号表 |
-| `plugin.replace_by_text(...)` | `bool` | 文本匹配替换 |
-| `plugin.replace_by_index(...)` | `bool` | 编号精确替换 |
-| `plugin.save(...)` | `dict` | 校验并保存 |
-| `plugin.discard()` | `None` | 撤销所有修改 |
-| `plugin.pending_count` | `int` | 暂存修改数 |
-
-```python
-from full_token_editor import TokenEditorPlugin
-
-plugin = TokenEditorPlugin("rules.pvrs")
-plugin.check()
-plugin.show("chk1")
-plugin.replace_by_text("chk1", "M1", "METAL1")
-plugin.replace_by_index("chk1", 5, "M99")
-plugin.save()
-plugin.discard()
 ```
 
 
