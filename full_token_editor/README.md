@@ -3,13 +3,6 @@
 ## 安装
 
 ```bash
-pip install git+https://github.com/MrNengDaDa/Argus_PVRS_Parser.git
-```
-
-或本地开发：
-
-```bash
-git clone https://github.com/MrNengDaDa/Argus_PVRS_Parser.git
 cd Argus_PVRS_Parser
 pip install -e .
 ```

@@ -32,8 +32,5 @@ dev = [
 [project.scripts]
 full-token-editor = "full_token_editor.cli:main"
 
-[project.urls]
-Homepage = "https://github.com/MrNengDaDa/Argus_PVRS_Parser"
-
 [tool.setuptools]
 packages = ["full_token_editor"]
