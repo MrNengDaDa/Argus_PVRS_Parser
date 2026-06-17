@@ -307,6 +307,26 @@ te.save(output_path="output.pvrs", backup=False)
 
 ---
 
+#### 9. `clear_changes()`
+
+**功能**：撤销所有暂存修改，恢复原始状态。
+
+**输入**：无
+
+**输出**：无
+
+**使用样例**
+
+```python
+te.replace_by_text("chk1", "M1", "METAL1")
+print(len(te.pending_tokens()))  # 1
+
+te.clear_changes()
+print(len(te.pending_tokens()))  # 0 — 全部撤销
+```
+
+---
+
 ### 其他 API
 
 ---
@@ -423,20 +443,6 @@ print(te.container_text("chk1"))
 ```
 
 ---
-
-#### `clear_changes()`
-
-**功能**：撤销所有暂存修改，恢复原始状态。
-
-**输入**：无
-
-**输出**：无
-
-```python
-te.clear_changes()
-print(len(te.pending_tokens()))  # 0
-```
-
 
 ## 元素粒度说明
 
