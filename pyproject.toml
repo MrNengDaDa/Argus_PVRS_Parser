@@ -6,9 +6,8 @@ build-backend = "setuptools.build_meta"
 name = "argus-pvrs-parser"
 version = "1.0.0"
 description = "ANTLR4-based parser and editor for Argus PVRS (Physical Verification Rule Set) files"
-readme = "full_token_editor/README.md"
 requires-python = ">=3.9"
-license = "MIT"
+license = {text = "MIT"}
 authors = [{name = "MrNengDaDa"}]
 keywords = ["pvrs", "drc", "lvs", "argus", "eda", "parser", "antlr"]
 classifiers = [
