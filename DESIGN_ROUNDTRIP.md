@@ -1,481 +1,376 @@
-# PVRS 文本 展开 → 修改 → 逆向还原 方案设计
+# PVRS 文本 展开 → 修改 → 逆向还原 方案设计 v2
 
-## 目标
+## 核心思想
 
-1. 将原始 PVRS（含 DEFINE_FUN / CALL_FUN / VAR）展开为平坦文本
-2. 用 `full_token_editor` 修改展开文本中的少量 token
-3. 将修改**逆映射**回原始文本，恢复宏和变量结构
-
-## 逆向映射的 7 种情况
-
-展开后的 token 在逆向时有以下情形，只有 **情况 1** 和 **情况 3** 可逆向映射。
-
-### 情况总览
-
-| # | 修改的 token 位于 | 能否逆映射 | 逆映射动作 |
-|---|-----------------|-----------|-----------|
-| 1 | 原文段落（identity，未被宏展开） | ✅ | 直接修改原始文件对应位置 |
-| 2 | VAR 替换的值区域（`/*:V:...*/ ... /*:V*/` 内） | ❌ | 跳过 + 打印日志（VAR 定义不可变） |
-| 3 | CALL_FUN 展开体内，且是**入参**（形参被调用实参替换） | ✅ | 修改 CALL_FUN 调用处的实参值 |
-| 4 | CALL_FUN 展开体内，但**不是入参**（函数 body 中硬编码的值） | ❌ | 跳过 + 打印日志（不属于任何入参） |
-| 5 | CALL_FUN 展开体内，是入参，但该入参同时也是 VAR 值 | ✅ | 修改 CALL_FUN 调用处实参（绕过 VAR，直接用修改后的值替换 VAR 引用） |
-| 6 | 嵌套 CALL_FUN 展开体内 | 递归 | 从内向外查找，按情况 3/4/5 判定 |
-| 7 | 标记注释本身（`/*:...*/`） | ❌ | 跳过（标记不应被修改） |
-
-### 详细说明
-
-**情况 1 — identity**
-
-展开前后完全一致的原文段落。如：
-```
-原文:  L1 = width ( M1 < 0.5 adjacent < 90 point_touch region )
-展开:  L1 = width ( M1 < 0.5 adjacent < 90 point_touch region )
-```
-此处的 `M1`、`< 0.5`、`adjacent` 等 token 没有被任何宏替换，可直接映射回原文位置。
-
-**情况 2 — VAR 值区域**
+不是"修改原始文件"，而是**从展开文本重建**一个新文件：
+将展开文本中的标记段（`/*:...*/`）按规则还原为 VAR 引用或 CALL_FUN 调用，
+原文段落（identity）直接保留。
 
 ```
-原文:  VAR(LAYER1 M1)
-展开:  ... /*:V:LAYER1=M1*/ M1 /*:V*/ ...
+展开文本 (带标记) + 修改列表
+        │
+        ▼ 从左到右扫描
+        │
+    ┌───┴───┬───────────┬───────────┐
+    │ identity│ VAR 标记段 │ FUNC 标记段 │
+    │ 段落    │           │           │
+    └───┬───┴─────┬─────┴─────┬─────┘
+        │         │           │
+        ▼         ▼           ▼
+    直接复制   变了吗？    入参改了吗？
+              /    \       /      \
+           变了   没变   没改/只改入参  改了非入参
+            │     │       │           │
+            ▼     ▼       ▼           ▼
+         字面量  VAR引用  CALL_FUN   保持展开
 ```
-如果用户修改展开文本中的 `M1`，逆向脚本跳过：VAR 定义中的值
-只能通过编辑原始文件的 `VAR(LAYER1 ...)` 语句来修改。
-
-**情况 3 — CALL_FUN 入参区域（可逆映射）**
-
-```
-原文:
-  DEFINE_FUN SPACECHK la lb { space( la lb < 0.5 ) }
-  CALL_FUN( SPACECHK LAYER1 5 )
-
-展开:
-  /*:F:SPACECHK:1:la=LAYER1:lb=5*/
-  space( LAYER1 5 < 0.5 )
-  /*:FEND:SPACECHK*/
-```
-`LAYER1` 对应入参 `la`，实参为 `LAYER1`；`5` 对应入参 `lb`，实参为 `5`。
-如果用户修改展开文本中的 `LAYER1` → `MET1`，逆向脚本将原始 `CALL_FUN` 改为：
-```
-CALL_FUN( SPACECHK MET1 5 )
-```
-
-**情况 4 — 函数 body 硬编码值（不可逆映射）**
-
-```
-原文:
-  DEFINE_FUN SPACECHK la lb { space( la lb < 0.5 ) }
-  CALL_FUN( SPACECHK LAYER1 LAYER2 )
-
-展开: ... space( LAYER1 LAYER2 < 0.5 ) ...
-                           ^^^^^^^ 硬编码在 body 中，不是入参
-```
-如果用户修改 `< 0.5` → `< 1.0`，逆向脚本跳过：这不是入参，修改它
-需要改动 DEFINE_FUN 的 body，会影响**所有**调用点，不应在此处逆向。
-
-**情况 5 — CALL_FUN 入参同时也是 VAR 值（可逆映射，绕过 VAR）**
-
-```
-原文:
-  VAR(LAYER1 M1)
-  DEFINE_FUN SPACECHK la lb { space( la lb < 0.5 ) }
-  CALL_FUN( SPACECHK LAYER1 M2 )
-
-展开:
-  /*:F:SPACECHK:1:la=LAYER1:lb=M2*/
-  space( /*:V:LAYER1=M1*/ M1 /*:V*/ M2 < 0.5 )
-         ^^^^^^^^^^^^^^^^^^^^^^^^ 入参 la=LAYER1，但 LAYER1 又是 VAR，二层嵌套
-```
-展开后的 `M1` 来源链：`M1` ← VAR 展开 `LAYER1` ← CALL_FUN 入参 `la`（实参=LAYER1）。
-
-如果用户修改展开文本中的 `M1` → `M99`，逆向脚本将原始 CALL_FUN 的
-该入参从 VAR 引用替换为修改后的字面值：
-```
-原文 CALL_FUN:  CALL_FUN( SPACECHK LAYER1 M2 )
-修改后:         CALL_FUN( SPACECHK M99 M2 )
-```
-VAR 定义 `VAR(LAYER1 M1)` 保持不变，但调用处**绕过**了 VAR 引用，
-直接使用修改后的值。
-
-**情况 6 — 嵌套 CALL_FUN**
-
-```
-原文:
-  DEFINE_FUN INNER x { geom_area( x > 0 ) }
-  DEFINE_FUN OUTER a { inner_result = CALL_FUN( INNER a ) }
-  CALL_FUN( OUTER M1 )
-
-展开:  /*:F:OUTER:1:a=M1*/
-      inner_result = /*:F:INNER:1:x=M1*/ geom_area( M1 > 0 ) /*:FEND:INNER*/
-      /*:FEND:OUTER*/
-```
-展开后的 `M1` 在 INNER 的展开体内，来源链：`M1` ← CALL_FUN INNER 入参 `x=M1` ← CALL_FUN OUTER 入参 `a=M1`。
-
-逆向时从最内层标记 (`INNER:1`) 开始查找：`M1` 是 INNER 的入参 `x` 吗？是（实参 = `M1`）。
-→ 修改 `CALL_FUN(INNER ...)` 的实参。
-
-**情况 7 — 标记注释**
-
-标记 `/*:V:...*/` 等是 ANTLR 注释，`full_token_editor` 不收集注释 token，
-正常情况下不会出现在修改列表中。如果出现，直接跳过。
 
 ---
 
-## 一、注释标记格式
+## 一、展开标记格式
 
-所有标记均为 ANTLR `BLOCK_COMMENT`（`/* ... */`），会被 lexer 自动跳过，
-不影响语法解析。统一前缀 `/*:` 用于逆向脚本唯一识别。
-
-### 1.1 VAR 变量替换标记
+### 1.1 VAR 标记
 
 ```
-原始:   space( LAYER1 LAYER2 < 0.5 )
-展开:   space( LAYER1 /*:V:LAYER2=M2*/ M2 /*:V*/ < 0.5 )
-                         ^──────────^   ^^  ^──^
-                         开始标记      值   结束标记
+原始:  space( LAYER1 LAYER2 < 0.5 )
+展开:  space( /*:V:LAYER1=M1*/ M1 /*:V*/ /*:V:LAYER2=M2*/ M2 /*:V*/ < 0.5 )
 ```
 
-**开始标记**: `/*:V:变量名=展开值*/`
-**结束标记**: `/*:V*/`
+**开始**: `/*:V:变量名=展开值*/`
+**结束**: `/*:V*/`
 
-开始标记内的 `变量名` 和 `展开值` 供逆向脚本查询。如果展开后的值被手动修改
-（如 `M2` 改为 `M99`），逆向脚本会跳过此项并打印提示——VAR 定义中的值不可
-通过修改展开文本来变更，应直接修改原始文件中的 VAR 语句。
+标记之间的内容为展开后的值。
 
-### 1.2 CALL_FUN 函数展开标记
-
-CALL_FUN 展开为多行时，需要在展开体的**开始**和**结束**位置各放一个标记。
+### 1.2 FUNC 标记
 
 ```
-原始:
-CALL_FUN( SPACECHK LAYER1 LAYER2 )
-
-展开后:
-/*:F:SPACECHK:1:la=LAYER1:lb=LAYER2*/
-space( LAYER1 LAYER2 < 0.5 )
-/*:FEND:SPACECHK*/
+原始:  CALL_FUN( SPACECHK LAYER1 5 )
+展开:  /*:F:SPACECHK:la=LAYER1:lb=5*/
+         space( LAYER1 5 < 0.5 )
+       /*:FEND*/
 ```
 
-**开始标记**: `/*:F:函数名:调用序号:参数1=传入值1:参数2=传入值2*/`
-- 调用序号用于区分同一函数的多次调用，从 1 开始
-- 参数列表记录每个形参→实参的映射
+**开始**: `/*:F:函数名:arg1=val1:arg2=val2*/`
+**结束**: `/*:FEND*/`
 
-**结束标记**: `/*:FEND:函数名*/`
+开始标记内记录了每个形参→实参的映射。标记之外的区域是完整的函数展开体。
 
-### 1.3 DEFINE_FUN 内部嵌套展开标记
+### 1.3 标记嵌套
 
-DEFINE_FUN 的 body 内部如果有 CALL_FUN 嵌套调用，同样用上述标记。
-展开后的 body 被 `/*:F:...*/` ... `/*:FEND:...*/` 包裹。
+```
+/*:F:OUTER:a=LAYER1*/
+  inner_result = /*:F:INNER:x=LAYER1*/ geom_area( /*:V:LAYER1=M1*/ M1 /*:V*/ > 0 ) /*:FEND*/
+/*:FEND*/
+```
+
+嵌套时从外向内匹配 `/*:F:...*/` 和 `/*:FEND*/`。
 
 ---
 
-## 二、expand_macros.py 改动
+## 二、展开流程（expand_macros.py）
 
-### 2.1 新增 `--annotate` 参数
+### 输出
 
-```bash
-python expand_macros.py input.pvrs expanded.pvrs --annotate
-```
+| 参数 | 说明 |
+|------|------|
+| `--annotate` | 展开时嵌入 `/*:...*/` 标记 |
+| `--info meta.json` | 输出元信息（变量/函数定义列表，供参考） |
 
-### 2.2 新增 `--info` 参数（输出元信息文件）
-
-```bash
-python expand_macros.py input.pvrs expanded.pvrs --annotate --info meta.json
-```
-
-`meta.json` 记录所有变量和函数定义的结构化信息，供逆向脚本快速查询。
-
-### 2.3 展开逻辑改动
-
-#### VAR 替换
-
-```python
-# 原: result = re.sub(pattern, value, result, ...)
-# 改: 在 value 前后包裹标记
-marked_value = f'/*:V:{name}={value}*/ {value} /*:V*/'
-result = re.sub(pattern, marked_value, result, ...)
-```
-
-**特殊情况**：如果同一个变量名在原文中出现多次，每处都包裹标记。
-
-**特殊情况**：如果值是纯数字（`M1`、`1000`），且未被 VAR 替换过，标记仍然包裹。
-这样即使值相同，逆向脚本也能识别该位置的来源。
-
-#### CALL_FUN 展开
-
-```python
-# 在展开体前后包裹标记
-expanded_body = substitute_args(info['body'], info['args'], call_args, fname)
-call_index = get_next_call_index(fname)  # 全局计数
-arg_list = ':'.join(f'{a}={v}' for a, v in zip(info['args'], call_args))
-marked = f'/*:F:{fname}:{call_index}:{arg_list}*/\n{expanded_body}\n/*:FEND:{fname}*/'
-```
-
-#### 元信息输出
+### 元信息 meta.json
 
 ```json
 {
-  "vars": {
-    "LAYER1": {"value": "M1", "line": 5},
-    "LAYER2": {"value": "M2", "line": 6}
-  },
+  "vars": {"LAYER1": "M1", "LAYER2": "M2"},
   "funcs": {
-    "SPACECHK": {
-      "line": 10,
-      "args": ["la", "lb"],
-      "body": "space( la lb < 0.5 )",
-      "calls": [
-        {"line": 25, "args": ["M1", "M2"], "index": 1}
-      ]
-    }
-  },
-  "annotation_count": {
-    "VAR": 12,
-    "FUNC": 3
+    "SPACECHK": {"args": ["la", "lb"], "body": "space( la lb < 0.5 )", "line": 10}
   }
+}
+```
+
+### 展开示例
+
+输入：
+```
+var(LAYER1 M1)
+var(LAYER2 M2)
+
+define_fun SPACECHK la lb {
+    space( la lb < 0.5 )
+}
+
+RULE chk {
+    CALL_FUN( SPACECHK LAYER1 5 )
+}
+```
+
+输出（带标记）：
+```
+var(LAYER1 M1)
+var(LAYER2 M2)
+
+define_fun SPACECHK la lb {
+    space( la lb < 0.5 )
+}
+
+RULE chk {
+    /*:F:SPACECHK:la=LAYER1:lb=5*/
+    space( /*:V:LAYER1=M1*/ M1 /*:V*/ 5 < 0.5 )
+    /*:FEND*/
 }
 ```
 
 ---
 
-## 三、逆向脚本 revert_expanded.py
+## 三、修改流程（不变）
 
-### 3.1 工作流程
-
-```
-展开后文本 (modified) + meta.json
-        │
-        ▼ 1. 解析所有 /*:V:...*/ /*:F...*/ 标记，建立展开位置→原始来源的索引
-        │
-        ▼ 2. 从 full_token_editor 获取修改列表 [(start, stop, new_text), ...]
-        │
-        ▼ 3. 对每个修改，二分查找索引，确定来源类型
-        │
-        ├── 情况1 identity      → 直接映射原文位置
-        ├── 情况2 VAR 替换位置    → 跳过 + 日志
-        ├── 情况3 CALL_FUN 入参   → 修改 CALL_FUN 调用实参
-        ├── 情况4 函数 body 硬编码 → 跳过 + 日志
-        ├── 情况5 入参也是 VAR     → 修改 CALL_FUN 调用实参（绕过 VAR，用修改后值替换 VAR 引用）
-        ├── 情况6 嵌套 CALL_FUN    → 递归，从内层向外判定
-        └── 情况7 标记注释         → 跳过
-        ├── 来源=函数体内部    → 修改 DEFINE_FUN 的 body 原文  
-        ├── 来源=非宏原文      → 直接改原文对应位置
-        └── 来源=标记本身      → 标记不应被修改，跳过
-        │
-        ▼ 4. 重建原始文件
-```
-
-### 3.2 核心数据结构
+用 `full_token_editor` 修改展开文本，收集修改列表：
 
 ```python
-@dataclass
-class SourceMapping:
-    """展开文本中一个字符范围到原文来源的映射"""
-    exp_start: int      # 展开文本中起始位置
-    exp_stop: int       # 展开文本中结束位置
-    source_type: str    # 'identity' | 'var' | 'func_body' | 'annotation'
-    detail: dict        # 来源详情
+te = TokenEditor("expanded.pvrs")
+te.replace_by_text("chk", "M1", "M99")
+te.save()
 ```
 
-#### 索引构建
-
-解析展开文本中的所有标记，构建映射表（按 `exp_start` 排序的列表）：
-
-```python
-mappings = []
-
-# 扫描 VAR 标记
-for m in re.finditer(r'/\*:V:([^=]+)=(.*?)\*/', text):
-    var_name = m.group(1)
-    value = m.group(2)
-    # 找结束标记
-    end_marker = '/*:V*/'
-    end_pos = text.index(end_marker, m.end())
-    # 标记之间的值区域
-    value_start = m.end()
-    value_end = text.index(end_marker, m.end()) - 1
-    mappings.append(SourceMapping(
-        exp_start=value_start,
-        exp_stop=value_end,
-        source_type='var',
-        detail={'var_name': var_name, 'original_value': value}
-    ))
-
-# 扫描 FUNC 标记
-for m in re.finditer(r'/\*:F:([^:]+):(\d+):(.+)'`', text):
-    ...
-```
-
-### 3.3 逆向映射逻辑
-
-```python
-def revert(original: str, expanded: str, meta: dict,
-           changes: List[Tuple[int, int, str]]) -> str:
-    """
-    changes: [(exp_start, exp_stop, new_text), ...]
-    返回: 修改后的原始文本
-    """
-    index = build_index(expanded)  # 构建映射索引
-    result = original
-    failed = []
-
-    for exp_start, exp_stop, new_text in changes:
-        mapping = find_mapping(index, exp_start, exp_stop)
-
-        if mapping is None:
-            failed.append((exp_start, exp_stop, new_text,
-                          '无法定位来源'))
-            continue
-
-        # 情况 2 / 7: 纯 VAR 值区域 / 标记注释
-        if mapping.source_type == 'var':
-            # 不在任何 CALL_FUN 展开体内 → 跳过
-            if not mapping.detail.get('inside_func'):
-                failed.append((exp_start, exp_stop, new_text,
-                              f'VAR 替换位置 (变量={mapping.detail["var_name"]})，'
-                              f'VAR 定义不可变'))
-                continue
-            # 情况 5: 在 CALL_FUN 展开体内 + 是入参 → 走下面 func_body 分支
-            if not mapping.detail.get('is_call_arg'):
-                failed.append((exp_start, exp_stop, new_text,
-                              f'VAR 替换位置 (变量={mapping.detail["var_name"]})，'
-                              f'不在入参位置，无法逆向'))
-                continue
-            # 是入参 → 继续走下面 func_body 逻辑（绕过 VAR，直接改 CALL_FUN 实参）
-            result = update_call_arg(
-                result, mapping.detail['func_name'],
-                mapping.detail['call_index'],
-                mapping.detail['arg_name'],
-                new_text)
-            continue
-
-        # 情况 4: 函数 body 硬编码，不是入参
-        if mapping.source_type == 'func_body' and not mapping.detail.get('is_arg'):
-            failed.append((exp_start, exp_stop, new_text,
-                          '函数 body 中硬编码的值，不属于入参，无法逆向'))
-            continue
-
-        # 情况 3: CALL_FUN 入参 → 修改调用处的实参
-        if mapping.source_type == 'func_body' and mapping.detail.get('is_arg'):
-            result = update_call_arg(
-                result, mapping.detail['func_name'],
-                mapping.detail['call_index'],
-                mapping.detail['arg_name'],
-                new_text)
-            continue
-            # 修改 DEFINE_FUN 的 body
-            func_name = mapping.detail['func_name']
-            result = update_function_body(result, func_name,
-                                          mapping.orig_start,
-                                          mapping.orig_stop,
-                                          new_text)
-
-        elif mapping.source_type == 'identity':
-            # 直接映射到原文位置
-            result = replace_range(result, mapping.orig_start,
-                                   mapping.orig_stop, new_text)
-
-        elif mapping.source_type == 'annotation':
-            failed.append((exp_start, exp_stop, new_text,
-                          '标记区域不可修改'))
-
-    # 打印失败项
-    for item in failed:
-        print(f'[!] 无法逆向: pos={item[0]}-{item[1]}, '
-              f'new_text={item[2]!r}, reason={item[3]}')
-
-    # 恢复原始 VAR 和 DEFINE_FUN 定义（不被修改影响）
-    result = restore_definitions(result, meta)
-
-    return result
-```
-
-### 3.4 失败处理
-
-以下情况标记为"无法逆向转换"，打印详细信息后**跳过**：
-
-1. **修改位置跨越标记边界**：修改范围同时包含标记和普通文本
-2. **修改位置在标记上**：标记本身被修改（不应该发生，因为 full_token_editor 不收集注释 token）
-3. **变量值被修改但不符合变量定义格式**：如将 `M1` 改为 `]@#$%`（包含非法字符）
-4. **函数体多次被改且无法确定对应原始位置**：标记被删除或破坏
-
-### 3.5 恢复原始定义
-
-逆向后的文本需要保持 VAR 和 DEFINE_FUN 的原始定义不变（除非其值被明确修改）。
-
-```python
-def restore_definitions(text: str, meta: dict) -> str:
-    """确保所有 VAR 和 DEFINE_FUN 定义存在于输出中"""
-    for var_name, info in meta['vars'].items():
-        if not var_still_exists(text, var_name):
-            # VAR 定义被误删，恢复
-            text = insert_var_definition(text, var_name, info)
-
-    for func_name, info in meta['funcs'].items():
-        if not func_still_exists(text, func_name):
-            text = insert_func_definition(text, func_name, info)
-
-    return text
-```
+修改列表：`[(char_start=150, char_stop=151, new_text='M99'), ...]`
 
 ---
 
-## 四、总体数据结构汇总
+## 四、逆向流程（revert_expanded.py）
 
-### expand_macros.py 输出
-
-| 产物 | 说明 |
-|------|------|
-| `expanded.pvrs` | 展开后的 PVRS 文本，含 `/*:...*/` 标记 |
-| `meta.json` | 变量/函数定义的元信息 |
-| 命令行: `--annotate --info meta.json` | |
-
-### revert_expanded.py 输入/输出
+### 输入
 
 | 输入 | 说明 |
 |------|------|
-| `original.pvrs` | 原始的含宏/VAR 的 PVRS 文件 |
-| `expanded_modified.pvrs` | 修改后的展开文本（含标记） |
-| `meta.json` | expand_macros 输出的元信息 |
+| `modified_expanded.pvrs` | 修改后的带标记展开文本 |
+| 修改列表 | 来自 full_token_editor 的 changes |
+| `meta.json` | 可选，供参考 |
 
-| 输出 | 说明 |
-|------|------|
-| `original_modified.pvrs` | 逆向还原后的原始文件（宏/VAR 结构保持，值已更新） |
-| stderr 输出 | 无法逆向的项（编号、位置、原因） |
+### 算法：从左到右扫描重建
 
----
+```python
+def revert(modified_text, changes):
+    """
+    扫描 modified_text，逐段重建输出文本。
+    changes: {char_start: new_text} 字典
+    """
+    output = []
+    pos = 0
 
-## 五、使用示例
+    while pos < len(modified_text):
+        # 找下一个标记
+        next_marker = find_next_marker(modified_text, pos)
 
-```bash
-# 第一步：带标注展开
-python expand_macros.py input.pvrs expanded.pvrs --annotate --info meta.json
+        if next_marker is None:
+            # 剩余全是 identity 段落，应用修改后复制
+            segment = apply_changes(modified_text[pos:], changes, offset=pos)
+            output.append(segment)
+            break
 
-# 第二步：用 full_token_editor 修改
-python sample_token_editor.py expanded.pvrs
-# 或用 API:
-# te = TokenEditor("expanded.pvrs")
-# te.replace_by_text("chk1", "M1", "METAL1")
-# te.save()
+        # 处理标记之前的 identity 段落
+        if next_marker.start > pos:
+            segment = apply_changes(modified_text[pos:next_marker.start],
+                                    changes, offset=pos)
+            output.append(segment)
 
-# 第三步：逆向还原
-python revert_expanded.py input.pvrs expanded.pvrs meta.json --output input_modified.pvrs
-# 输出:
-#   [✓] 3 项修改已逆向
-#   [!] 1 项无法逆向: pos=150-155, new_text=']@#$%', reason=非法字符
+        # 根据标记类型处理
+        if next_marker.type == 'VAR':
+            output.append(revert_var(next_marker, modified_text, changes))
+        elif next_marker.type == 'FUNC':
+            output.append(revert_func(next_marker, modified_text, changes))
+
+        pos = next_marker.end  # 跳过已处理区域
+
+    return ''.join(output)
+```
+
+### 4.1 identity 段落处理
+
+```python
+def apply_changes(segment, changes, offset):
+    """对 identity 段落应用修改"""
+    result = list(segment)
+    for (cs, ce, new_text) in changes:
+        local_start = cs - offset
+        local_stop = ce - offset
+        if 0 <= local_start < len(segment):
+            result[local_start:local_stop+1] = new_text
+    return ''.join(result)
+```
+
+### 4.2 VAR 标记段处理（规则 1）
+
+```python
+def revert_var(marker, text, changes):
+    """
+    规则 1:
+    - 值被修改 → 输出字面量（新值）
+    - 值未被修改 → 输出 VAR 引用（变量名）
+    """
+    var_name = marker.var_name       # 如 "LAYER1"
+    var_value = marker.var_value     # 如 "M1"
+    value_start = marker.value_start  # 值区域起始 pos
+    value_end = marker.value_end      # 值区域结束 pos
+
+    # 检查值区域是否被修改
+    modified = False
+    effective = var_value
+    for (cs, ce, new_text) in changes:
+        if cs >= value_start and ce <= value_end:
+            effective = new_text
+            modified = True
+            break
+
+    if modified:
+        return effective       # 字面量 M99
+    else:
+        return var_name        # VAR 引用 LAYER1
+```
+
+### 4.3 FUNC 标记段处理（规则 2）
+
+```python
+def revert_func(marker, text, changes):
+    """
+    规则 2:
+    - 只有入参被修改（或无修改）→ 输出 CALL_FUN(...)，入参更新
+    - 非入参被修改 → 保持展开形式（标记段原样输出，应用修改）
+    """
+    func_body = text[marker.body_start:marker.body_end]
+    args = marker.args  # [('la', 'LAYER1'), ('lb', '5')]
+
+    # 检查修改是否全部在入参区域
+    for (cs, ce, new_text) in changes:
+        if marker.contains(cs, ce):
+            if not any(is_in_arg(cs, ce, arg) for arg in args):
+                # 非入参被修改 → 保持展开
+                return apply_changes_to_body(func_body, changes,
+                                             offset=marker.body_start)
+
+    # 入参被修改或无修改 → 重建 CALL_FUN
+    call_args = []
+    for arg_name, arg_value in args:
+        effective = arg_value
+        for (cs, ce, new_text) in changes:
+            if marker.contains(cs, ce) and is_in_arg(cs, ce, (arg_name, arg_value)):
+                effective = new_text
+                break
+        call_args.append(effective)
+
+    return f'CALL_FUN( {marker.func_name} {" ".join(call_args)} )'
+```
+
+### 4.4 嵌套处理
+
+`/*:F:...*/` 和 `/*:FEND*/` 配对匹配。扫描时如果在内层 FUNC 标记内再次遇到 `/*:F:...*/`，递归进入，直到匹配到对应的 `/*:FEND*/`。
+
+```python
+def find_matching_fend(text, func_start_pos):
+    """从 /*:F:...*/ 位置找到匹配的 /*:FEND*/"""
+    depth = 0
+    pos = func_start_pos
+    while pos < len(text):
+        if text.startswith('/*:F:', pos):
+            depth += 1
+        elif text.startswith('/*:FEND', pos):
+            depth -= 1
+            if depth == 0:
+                return pos + len('/*:FEND*/')
+        pos += 1
+    return -1
 ```
 
 ---
 
-## 六、边界情况处理
+## 五、完整示例
 
-| 场景 | 处理方式 |
-|------|---------|
-| 修改位置来源于 VAR 替换 | 跳过逆向映射，打印提示：请修改 VAR 定义或源文本 |
-| 同一变量出现多次，只改其中一次 | 跳过（VAR 值不可变） |
-| 函数体内部 token 被修改 | 修改映射到 DEFINE_FUN 的 body 原文中 |
-| 修改导致展开值 ≠ VAR 定义值 | 正常：正是需要逆向更新的情况 |
-| 展开后被多个人/工具多次修改 | 无法处理，标记可能被破坏导致失败 |
-| expand_macros.py 未展开（无 VAR/DEFINE_FUN） | meta.json 为空，revert 退化为纯位置映射 |
-| 修改范围跨越了标记 | 标记 `/*:...*/` 可能被破坏，回退到原始值 |
-| CALL_FUN 嵌套调用 | 每层嵌套各自用标记包裹，递归处理 |
+### 输入
+
+原始：
+```
+var(LAYER1 M1)
+define_fun SPACECHK la lb { space( la lb < 0.5 ) }
+RULE chk { CALL_FUN( SPACECHK LAYER1 5 ) }
+```
+
+展开后（带标记）：
+```
+var(LAYER1 M1)
+define_fun SPACECHK la lb { space( la lb < 0.5 ) }
+RULE chk {
+    /*:F:SPACECHK:la=LAYER1:lb=5*/
+    space( /*:V:LAYER1=M1*/ M1 /*:V*/ 5 < 0.5 )
+    /*:FEND*/
+}
+```
+
+### 场景 A：修改 VAR 值（M1 → M99）
+
+修改：`M1` (pos=150-151) → `M99`
+
+逆向输出：
+```
+var(LAYER1 M1)
+define_fun SPACECHK la lb { space( la lb < 0.5 ) }
+RULE chk {
+    /*:F:SPACECHK:la=LAYER1:lb=5*/
+    space( M99 5 < 0.5 )        ← M1 被改了，写回字面量 M99
+    /*:FEND*/
+}
+```
+
+### 场景 B：修改 CALL_FUN 入参（LAYER1 → MET1）
+
+修改：第一个 `LAYER1` (pos=120-125) → `MET1`
+
+这是 FUNC 标记内、入参 `la` 对应的区域（该区域又嵌套了 VAR 标记）。
+入参值从 `LAYER1` 改为 `MET1`。
+
+逆向输出：
+```
+var(LAYER1 M1)
+define_fun SPACECHK la lb { space( la lb < 0.5 ) }
+RULE chk {
+    CALL_FUN( SPACECHK MET1 5 )   ← 展开体恢复为 CALL_FUN，入参更新
+}
+```
+
+### 场景 C：修改非入参（0.5 → 1.0）
+
+修改：`0.5` (pos=160-162) → `1.0`
+
+这是 FUNC 标记内、但不在入参区域（0.5 是函数 body 硬编码值）。
+
+逆向输出：
+```
+var(LAYER1 M1)
+define_fun SPACECHK la lb { space( la lb < 0.5 ) }
+RULE chk {
+    /*:F:SPACECHK:la=LAYER1:lb=5*/
+    space( /*:V:LAYER1=M1*/ M1 /*:V*/ 5 < 1.0 )   ← 保持展开，应用修改
+    /*:FEND*/
+}
+```
+
+### 场景 D：未修改任何入参
+
+修改：无
+
+逆向输出：
+```
+var(LAYER1 M1)
+define_fun SPACECHK la lb { space( la lb < 0.5 ) }
+RULE chk {
+    CALL_FUN( SPACECHK LAYER1 5 )   ← 恢复为完整的 CALL_FUN
+}
+```
+
+---
+
+## 六、文件清单
+
+| 文件 | 说明 |
+|------|------|
+| `expand_macros.py --annotate` | 展开时嵌入标记（新增功能） |
+| `full_token_editor` | 修改展开文本（不变） |
+| `revert_expanded.py` | 逆向重建脚本（新增） |
+| `DESIGN_ROUNDTRIP.md` | 本设计文档 |
