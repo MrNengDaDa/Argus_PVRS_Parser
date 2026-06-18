@@ -19,7 +19,8 @@
         ▼         ▼           ▼
     直接复制   变了吗？    入参改了吗？
               /    \       /      \
-           变了   没变   没改/只改入参  改了非入参
+           变了   没变   没改/全部入参   改了非入参/
+                   │     一致修改    入参修改不一致
             │     │       │           │
             ▼     ▼       ▼           ▼
          字面量  VAR引用  CALL_FUN   保持展开
@@ -41,19 +42,23 @@
 
 标记之间的内容为展开后的值。
 
-### 1.2 FUNC 标记
+### 1.2 FUNC 标记 + ARG 子标记
 
 ```
 原始:  CALL_FUN( SPACECHK LAYER1 5 )
 展开:  /*:F:SPACECHK:la=LAYER1:lb=5*/
-         space( LAYER1 5 < 0.5 )
+         space( /*:A:la:0*/ LAYER1 /*:A*/ /*:A:lb:0*/ 5 /*:A*/ < 0.5 )
        /*:FEND*/
 ```
 
-**开始**: `/*:F:函数名:arg1=val1:arg2=val2*/`
-**结束**: `/*:FEND*/`
+**FUNC 开始**: `/*:F:函数名:arg1=val1:arg2=val2*/`
+**FUNC 结束**: `/*:FEND*/`
+**ARG 出现**: `/*:A:形参名:出现序号*/ 值 /*:A*/`
 
-开始标记内记录了每个形参→实参的映射。标记之外的区域是完整的函数展开体。
+`/*:A:形参名:N*/` 标记 body 中每个形参出现的位置（N 从 0 开始计数）。
+此标记为**可选的增强标记**——当 body 中同一形参出现 ≥2 次时生成，
+用于精确界定每处出现的位置，支持一致性检查。
+如果 body 中每个形参只出现一次，可以省略 `/*:A:...*/` 标记。
 
 ### 1.3 标记嵌套
 
@@ -231,29 +236,76 @@ def revert_var(marker, text, changes):
 ```python
 def revert_func(marker, text, changes):
     """
-    规则 2:
-    - 只有入参被修改（或无修改）→ 输出 CALL_FUN(...)，入参更新
-    - 非入参被修改 → 保持展开形式（标记段原样输出，应用修改）
+    规则 2 — CALL_FUN 展开段重建:
+    - 无修改 → 输出原始 CALL_FUN(...)
+    - 只有入参被修改，且同一入参所有出现修改一致 → 输出 CALL_FUN(...)，入参更新
+    - 非入参被修改 → 保持展开形式
+    - 入参出现多次，但修改值不一致 → 保持展开形式
+
+    一致性检查：入参在 body 中可能出现多次（用 /*:A:...*/ 标记界定）。
+    同一入参的所有出现必须都修改为**相同值**或全部未修改，才能逆映射。
+    例如 body 中 la 出现 2 次，一次改为 MET1 另一次未改 → 保持展开。
     """
     func_body = text[marker.body_start:marker.body_end]
     args = marker.args  # [('la', 'LAYER1'), ('lb', '5')]
 
-    # 检查修改是否全部在入参区域
-    for (cs, ce, new_text) in changes:
-        if marker.contains(cs, ce):
-            if not any(is_in_arg(cs, ce, arg) for arg in args):
-                # 非入参被修改 → 保持展开
-                return apply_changes_to_body(func_body, changes,
-                                             offset=marker.body_start)
+    # 1. 收集所有 arg 出现位置的标记
+    arg_occurrences = {}  # {arg_name: [(start, stop, current_value), ...]}
+    for m in re.finditer(r'/\\*:A:([^:]+):(\\d+)\\*/', func_body):
+        arg_name = m.group(1)
+        occ_idx = m.group(2)
+        # 找匹配的 /*:A*/
+        end_pos = func_body.index('/*:A*/', m.end())
+        val_start = m.end()
+        val_end = end_pos - 1
+        current = func_body[val_start:val_end + 1]
+        arg_occurrences.setdefault(arg_name, []).append(
+            (marker.body_start + val_start, marker.body_start + val_end, current))
 
-    # 入参被修改或无修改 → 重建 CALL_FUN
+    # 2. 检查非入参位置是否被修改
+    for (cs, ce, new_text) in changes:
+        if not marker.contains(cs, ce):
+            continue
+        # 检查是否在任何 arg 出现位置内
+        in_arg = False
+        for occs in arg_occurrences.values():
+            for (s, e, _) in occs:
+                if cs >= s and ce <= e:
+                    in_arg = True
+                    break
+        if not in_arg:
+            # 非入参被修改 → 保持展开
+            return apply_changes_to_body(func_body, changes,
+                                         offset=marker.body_start)
+
+    # 3. 一致性检查：同一入参的所有出现，修改必须相同
+    for arg_name, occs in arg_occurrences.items():
+        modified_values = set()
+        for (s, e, orig_val) in occs:
+            effective = orig_val
+            for (cs, ce, new_text) in changes:
+                if cs >= s and ce <= e:
+                    effective = new_text
+                    break
+            if effective != orig_val:
+                modified_values.add(effective)
+        if len(modified_values) > 1:
+            # 同一入参被改成多个不同值 → 保持展开
+            return apply_changes_to_body(func_body, changes,
+                                         offset=marker.body_start)
+
+    # 4. 一致性通过 → 重建 CALL_FUN
     call_args = []
     for arg_name, arg_value in args:
         effective = arg_value
-        for (cs, ce, new_text) in changes:
-            if marker.contains(cs, ce) and is_in_arg(cs, ce, (arg_name, arg_value)):
-                effective = new_text
-                break
+        occs = arg_occurrences.get(arg_name, [])
+        if occs:
+            # 取第一个出现位置的值（所有出现已确认一致）
+            (s, e, orig) = occs[0]
+            for (cs, ce, new_text) in changes:
+                if cs >= s and ce <= e:
+                    effective = new_text
+                    break
         call_args.append(effective)
 
     return f'CALL_FUN( {marker.func_name} {" ".join(call_args)} )'
@@ -362,6 +414,40 @@ define_fun SPACECHK la lb { space( la lb < 0.5 ) }
 RULE chk {
     CALL_FUN( SPACECHK LAYER1 5 )   ← 恢复为完整的 CALL_FUN
 }
+```
+
+### 场景 E：入参出现两次，仅修改一处（不一致）→ 保持展开
+
+假设 DEFINE_FUN body 中 `la` 出现两次：
+```
+define_fun SPACECHK la lb {
+    space( la lb < 0.5 )
+    AND space( la lb > 1.0 )
+}
+```
+
+展开后：
+```
+/*:F:SPACECHK:la=LAYER1:lb=5*/
+space( /*:A:la:0*/ LAYER1 /*:A*/ /*:A:lb:0*/ 5 /*:A*/ < 0.5 )
+AND space( /*:A:la:1*/ LAYER1 /*:A*/ /*:A:lb:1*/ 5 /*:A*/ > 1.0 )
+/*:FEND*/
+```
+
+修改：仅将第一个 `LAYER1` (la:0) → `MET1`，第二个 `LAYER1` (la:1) 不变。
+
+逆向结果（**保持一致展开**）：
+```
+/*:F:SPACECHK:la=LAYER1:lb=5*/
+space( MET1 5 < 0.5 )
+AND space( LAYER1 5 > 1.0 )
+/*:FEND*/
+```
+
+所有入参 `la` 的两处出现中，一处改了一处没改，无法映射为单一 CALL_FUN 调用，
+因此保持展开形式并打印日志：
+```
+[!] FUNC SPACECHK: 入参 la 出现 2 次，修改值不一致 ({'MET1', 'LAYER1'})，保持展开
 ```
 
 ---
