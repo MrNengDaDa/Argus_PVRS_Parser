@@ -6,6 +6,14 @@
 2. 用 `full_token_editor` 修改展开文本中的少量 token
 3. 将修改**逆映射**回原始文本，恢复宏和变量结构
 
+## 核心约束
+
+- **VAR 定义值不可变**：`VAR(LAYER1 M1)` 中 `M1` 不能通过修改展开文本来更改。
+  如果要改 `M1`，应直接修改原始文件中的 VAR 语句，而非修改展开后的 token。
+  修改位置落在 VAR 替换区域时，逆向脚本会跳过并打印提示。
+- **可逆向的修改**：仅对**非宏展开的原文段落**（identity）和 **DEFINE_FUN 函数体内部**
+  的修改才能逆向映射回原始文本。
+
 ---
 
 ## 一、注释标记格式
@@ -137,7 +145,7 @@ marked = f'/*:F:{fname}:{call_index}:{arg_list}*/\n{expanded_body}\n/*:FEND:{fna
         │
         ▼ 3. 对每个修改，二分查找索引，确定来源类型
         │
-        ├── 来源=VAR 替换位置 → 修改 VAR 定义的值
+        ├── 来源=VAR 替换位置 → 跳过（VAR 定义值不可变）
         ├── 来源=函数体内部    → 修改 DEFINE_FUN 的 body 原文  
         ├── 来源=非宏原文      → 直接改原文对应位置
         └── 来源=标记本身      → 标记不应被修改，跳过
@@ -208,11 +216,11 @@ def revert(original: str, expanded: str, meta: dict,
             continue
 
         if mapping.source_type == 'var':
-            # 修改 VAR 定义中的值
-            var_name = mapping.detail['var_name']
-            old_value = mapping.detail['original_value']
-            result = update_var_definition(result, var_name,
-                                           old_value, new_text)
+            # VAR 定义中的值不可改变，跳过逆向映射
+            failed.append((exp_start, exp_stop, new_text,
+                          f'VAR 替换位置 (变量={mapping.detail["var_name"]})，'
+                          f'原值不可变，请修改 VAR 定义或源文本'))
+            continue
 
         elif mapping.source_type == 'func_body':
             # 修改 DEFINE_FUN 的 body
@@ -323,7 +331,8 @@ python revert_expanded.py input.pvrs expanded.pvrs meta.json --output input_modi
 
 | 场景 | 处理方式 |
 |------|---------|
-| 同一变量出现多次，只改其中一次 | 标记精确到每次出现，只更新该处对应的 VAR 值 |
+| 修改位置来源于 VAR 替换 | 跳过逆向映射，打印提示：请修改 VAR 定义或源文本 |
+| 同一变量出现多次，只改其中一次 | 跳过（VAR 值不可变） |
 | 函数体内部 token 被修改 | 修改映射到 DEFINE_FUN 的 body 原文中 |
 | 修改导致展开值 ≠ VAR 定义值 | 正常：正是需要逆向更新的情况 |
 | 展开后被多个人/工具多次修改 | 无法处理，标记可能被破坏导致失败 |
