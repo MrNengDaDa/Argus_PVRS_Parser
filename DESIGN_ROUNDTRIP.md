@@ -18,7 +18,7 @@
 | 2 | VAR 替换的值区域（`/*:V:...*/ ... /*:V*/` 内） | ❌ | 跳过 + 打印日志（VAR 定义不可变） |
 | 3 | CALL_FUN 展开体内，且是**入参**（形参被调用实参替换） | ✅ | 修改 CALL_FUN 调用处的实参值 |
 | 4 | CALL_FUN 展开体内，但**不是入参**（函数 body 中硬编码的值） | ❌ | 跳过 + 打印日志（不属于任何入参） |
-| 5 | CALL_FUN 展开体内，是入参，但该入参同时也是 VAR 值 | ❌ | 跳过 + 打印日志（VAR 定义不可变，优先级高于入参） |
+| 5 | CALL_FUN 展开体内，是入参，但该入参同时也是 VAR 值 | ✅ | 修改 CALL_FUN 调用处实参（绕过 VAR，直接用修改后的值替换 VAR 引用） |
 | 6 | 嵌套 CALL_FUN 展开体内 | 递归 | 从内向外查找，按情况 3/4/5 判定 |
 | 7 | 标记注释本身（`/*:...*/`） | ❌ | 跳过（标记不应被修改） |
 
@@ -73,7 +73,7 @@ CALL_FUN( SPACECHK MET1 5 )
 如果用户修改 `< 0.5` → `< 1.0`，逆向脚本跳过：这不是入参，修改它
 需要改动 DEFINE_FUN 的 body，会影响**所有**调用点，不应在此处逆向。
 
-**情况 5 — CALL_FUN 入参同时也是 VAR 值（不可逆映射）**
+**情况 5 — CALL_FUN 入参同时也是 VAR 值（可逆映射，绕过 VAR）**
 
 ```
 原文:
@@ -86,8 +86,16 @@ CALL_FUN( SPACECHK MET1 5 )
   space( /*:V:LAYER1=M1*/ M1 /*:V*/ M2 < 0.5 )
          ^^^^^^^^^^^^^^^^^^^^^^^^ 入参 la=LAYER1，但 LAYER1 又是 VAR，二层嵌套
 ```
-展开后的 `M1` 来源链：`M1` ← VAR 展开 `LAYER1` ← CALL_FUN 入参 `la`。
-VAR 定义值不可变的优先级高于入参修改，因此**跳过逆向映射**。
+展开后的 `M1` 来源链：`M1` ← VAR 展开 `LAYER1` ← CALL_FUN 入参 `la`（实参=LAYER1）。
+
+如果用户修改展开文本中的 `M1` → `M99`，逆向脚本将原始 CALL_FUN 的
+该入参从 VAR 引用替换为修改后的字面值：
+```
+原文 CALL_FUN:  CALL_FUN( SPACECHK LAYER1 M2 )
+修改后:         CALL_FUN( SPACECHK M99 M2 )
+```
+VAR 定义 `VAR(LAYER1 M1)` 保持不变，但调用处**绕过**了 VAR 引用，
+直接使用修改后的值。
 
 **情况 6 — 嵌套 CALL_FUN**
 
@@ -247,7 +255,7 @@ marked = f'/*:F:{fname}:{call_index}:{arg_list}*/\n{expanded_body}\n/*:FEND:{fna
         ├── 情况2 VAR 替换位置    → 跳过 + 日志
         ├── 情况3 CALL_FUN 入参   → 修改 CALL_FUN 调用实参
         ├── 情况4 函数 body 硬编码 → 跳过 + 日志
-        ├── 情况5 入参也是 VAR     → 跳过 + 日志（VAR 优先）
+        ├── 情况5 入参也是 VAR     → 修改 CALL_FUN 调用实参（绕过 VAR，用修改后值替换 VAR 引用）
         ├── 情况6 嵌套 CALL_FUN    → 递归，从内层向外判定
         └── 情况7 标记注释         → 跳过
         ├── 来源=函数体内部    → 修改 DEFINE_FUN 的 body 原文  
@@ -319,11 +327,26 @@ def revert(original: str, expanded: str, meta: dict,
                           '无法定位来源'))
             continue
 
-        # 情况 2 / 5 / 7: VAR 值区域 / 标记注释
-        if mapping.source_type in ('var', 'annotation'):
-            reason = (f'VAR 替换位置 (变量={mapping.detail.get("var_name", "?")})，'
-                      f'VAR 定义不可变')
-            failed.append((exp_start, exp_stop, new_text, reason))
+        # 情况 2 / 7: 纯 VAR 值区域 / 标记注释
+        if mapping.source_type == 'var':
+            # 不在任何 CALL_FUN 展开体内 → 跳过
+            if not mapping.detail.get('inside_func'):
+                failed.append((exp_start, exp_stop, new_text,
+                              f'VAR 替换位置 (变量={mapping.detail["var_name"]})，'
+                              f'VAR 定义不可变'))
+                continue
+            # 情况 5: 在 CALL_FUN 展开体内 + 是入参 → 走下面 func_body 分支
+            if not mapping.detail.get('is_call_arg'):
+                failed.append((exp_start, exp_stop, new_text,
+                              f'VAR 替换位置 (变量={mapping.detail["var_name"]})，'
+                              f'不在入参位置，无法逆向'))
+                continue
+            # 是入参 → 继续走下面 func_body 逻辑（绕过 VAR，直接改 CALL_FUN 实参）
+            result = update_call_arg(
+                result, mapping.detail['func_name'],
+                mapping.detail['call_index'],
+                mapping.detail['arg_name'],
+                new_text)
             continue
 
         # 情况 4: 函数 body 硬编码，不是入参
