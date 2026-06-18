@@ -6,13 +6,110 @@
 2. 用 `full_token_editor` 修改展开文本中的少量 token
 3. 将修改**逆映射**回原始文本，恢复宏和变量结构
 
-## 核心约束
+## 逆向映射的 7 种情况
 
-- **VAR 定义值不可变**：`VAR(LAYER1 M1)` 中 `M1` 不能通过修改展开文本来更改。
-  如果要改 `M1`，应直接修改原始文件中的 VAR 语句，而非修改展开后的 token。
-  修改位置落在 VAR 替换区域时，逆向脚本会跳过并打印提示。
-- **可逆向的修改**：仅对**非宏展开的原文段落**（identity）和 **DEFINE_FUN 函数体内部**
-  的修改才能逆向映射回原始文本。
+展开后的 token 在逆向时有以下情形，只有 **情况 1** 和 **情况 3** 可逆向映射。
+
+### 情况总览
+
+| # | 修改的 token 位于 | 能否逆映射 | 逆映射动作 |
+|---|-----------------|-----------|-----------|
+| 1 | 原文段落（identity，未被宏展开） | ✅ | 直接修改原始文件对应位置 |
+| 2 | VAR 替换的值区域（`/*:V:...*/ ... /*:V*/` 内） | ❌ | 跳过 + 打印日志（VAR 定义不可变） |
+| 3 | CALL_FUN 展开体内，且是**入参**（形参被调用实参替换） | ✅ | 修改 CALL_FUN 调用处的实参值 |
+| 4 | CALL_FUN 展开体内，但**不是入参**（函数 body 中硬编码的值） | ❌ | 跳过 + 打印日志（不属于任何入参） |
+| 5 | CALL_FUN 展开体内，是入参，但该入参同时也是 VAR 值 | ❌ | 跳过 + 打印日志（VAR 定义不可变，优先级高于入参） |
+| 6 | 嵌套 CALL_FUN 展开体内 | 递归 | 从内向外查找，按情况 3/4/5 判定 |
+| 7 | 标记注释本身（`/*:...*/`） | ❌ | 跳过（标记不应被修改） |
+
+### 详细说明
+
+**情况 1 — identity**
+
+展开前后完全一致的原文段落。如：
+```
+原文:  L1 = width ( M1 < 0.5 adjacent < 90 point_touch region )
+展开:  L1 = width ( M1 < 0.5 adjacent < 90 point_touch region )
+```
+此处的 `M1`、`< 0.5`、`adjacent` 等 token 没有被任何宏替换，可直接映射回原文位置。
+
+**情况 2 — VAR 值区域**
+
+```
+原文:  VAR(LAYER1 M1)
+展开:  ... /*:V:LAYER1=M1*/ M1 /*:V*/ ...
+```
+如果用户修改展开文本中的 `M1`，逆向脚本跳过：VAR 定义中的值
+只能通过编辑原始文件的 `VAR(LAYER1 ...)` 语句来修改。
+
+**情况 3 — CALL_FUN 入参区域（可逆映射）**
+
+```
+原文:
+  DEFINE_FUN SPACECHK la lb { space( la lb < 0.5 ) }
+  CALL_FUN( SPACECHK LAYER1 5 )
+
+展开:
+  /*:F:SPACECHK:1:la=LAYER1:lb=5*/
+  space( LAYER1 5 < 0.5 )
+  /*:FEND:SPACECHK*/
+```
+`LAYER1` 对应入参 `la`，实参为 `LAYER1`；`5` 对应入参 `lb`，实参为 `5`。
+如果用户修改展开文本中的 `LAYER1` → `MET1`，逆向脚本将原始 `CALL_FUN` 改为：
+```
+CALL_FUN( SPACECHK MET1 5 )
+```
+
+**情况 4 — 函数 body 硬编码值（不可逆映射）**
+
+```
+原文:
+  DEFINE_FUN SPACECHK la lb { space( la lb < 0.5 ) }
+  CALL_FUN( SPACECHK LAYER1 LAYER2 )
+
+展开: ... space( LAYER1 LAYER2 < 0.5 ) ...
+                           ^^^^^^^ 硬编码在 body 中，不是入参
+```
+如果用户修改 `< 0.5` → `< 1.0`，逆向脚本跳过：这不是入参，修改它
+需要改动 DEFINE_FUN 的 body，会影响**所有**调用点，不应在此处逆向。
+
+**情况 5 — CALL_FUN 入参同时也是 VAR 值（不可逆映射）**
+
+```
+原文:
+  VAR(LAYER1 M1)
+  DEFINE_FUN SPACECHK la lb { space( la lb < 0.5 ) }
+  CALL_FUN( SPACECHK LAYER1 M2 )
+
+展开:
+  /*:F:SPACECHK:1:la=LAYER1:lb=M2*/
+  space( /*:V:LAYER1=M1*/ M1 /*:V*/ M2 < 0.5 )
+         ^^^^^^^^^^^^^^^^^^^^^^^^ 入参 la=LAYER1，但 LAYER1 又是 VAR，二层嵌套
+```
+展开后的 `M1` 来源链：`M1` ← VAR 展开 `LAYER1` ← CALL_FUN 入参 `la`。
+VAR 定义值不可变的优先级高于入参修改，因此**跳过逆向映射**。
+
+**情况 6 — 嵌套 CALL_FUN**
+
+```
+原文:
+  DEFINE_FUN INNER x { geom_area( x > 0 ) }
+  DEFINE_FUN OUTER a { inner_result = CALL_FUN( INNER a ) }
+  CALL_FUN( OUTER M1 )
+
+展开:  /*:F:OUTER:1:a=M1*/
+      inner_result = /*:F:INNER:1:x=M1*/ geom_area( M1 > 0 ) /*:FEND:INNER*/
+      /*:FEND:OUTER*/
+```
+展开后的 `M1` 在 INNER 的展开体内，来源链：`M1` ← CALL_FUN INNER 入参 `x=M1` ← CALL_FUN OUTER 入参 `a=M1`。
+
+逆向时从最内层标记 (`INNER:1`) 开始查找：`M1` 是 INNER 的入参 `x` 吗？是（实参 = `M1`）。
+→ 修改 `CALL_FUN(INNER ...)` 的实参。
+
+**情况 7 — 标记注释**
+
+标记 `/*:V:...*/` 等是 ANTLR 注释，`full_token_editor` 不收集注释 token，
+正常情况下不会出现在修改列表中。如果出现，直接跳过。
 
 ---
 
@@ -146,7 +243,13 @@ marked = f'/*:F:{fname}:{call_index}:{arg_list}*/\n{expanded_body}\n/*:FEND:{fna
         │
         ▼ 3. 对每个修改，二分查找索引，确定来源类型
         │
-        ├── 来源=VAR 替换位置 → 跳过（VAR 定义值不可变）
+        ├── 情况1 identity      → 直接映射原文位置
+        ├── 情况2 VAR 替换位置    → 跳过 + 日志
+        ├── 情况3 CALL_FUN 入参   → 修改 CALL_FUN 调用实参
+        ├── 情况4 函数 body 硬编码 → 跳过 + 日志
+        ├── 情况5 入参也是 VAR     → 跳过 + 日志（VAR 优先）
+        ├── 情况6 嵌套 CALL_FUN    → 递归，从内层向外判定
+        └── 情况7 标记注释         → 跳过
         ├── 来源=函数体内部    → 修改 DEFINE_FUN 的 body 原文  
         ├── 来源=非宏原文      → 直接改原文对应位置
         └── 来源=标记本身      → 标记不应被修改，跳过
@@ -216,14 +319,27 @@ def revert(original: str, expanded: str, meta: dict,
                           '无法定位来源'))
             continue
 
-        if mapping.source_type == 'var':
-            # VAR 定义中的值不可改变，跳过逆向映射
-            failed.append((exp_start, exp_stop, new_text,
-                          f'VAR 替换位置 (变量={mapping.detail["var_name"]})，'
-                          f'原值不可变，请修改 VAR 定义或源文本'))
+        # 情况 2 / 5 / 7: VAR 值区域 / 标记注释
+        if mapping.source_type in ('var', 'annotation'):
+            reason = (f'VAR 替换位置 (变量={mapping.detail.get("var_name", "?")})，'
+                      f'VAR 定义不可变')
+            failed.append((exp_start, exp_stop, new_text, reason))
             continue
 
-        elif mapping.source_type == 'func_body':
+        # 情况 4: 函数 body 硬编码，不是入参
+        if mapping.source_type == 'func_body' and not mapping.detail.get('is_arg'):
+            failed.append((exp_start, exp_stop, new_text,
+                          '函数 body 中硬编码的值，不属于入参，无法逆向'))
+            continue
+
+        # 情况 3: CALL_FUN 入参 → 修改调用处的实参
+        if mapping.source_type == 'func_body' and mapping.detail.get('is_arg'):
+            result = update_call_arg(
+                result, mapping.detail['func_name'],
+                mapping.detail['call_index'],
+                mapping.detail['arg_name'],
+                new_text)
+            continue
             # 修改 DEFINE_FUN 的 body
             func_name = mapping.detail['func_name']
             result = update_function_body(result, func_name,
