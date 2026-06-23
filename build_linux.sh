@@ -39,6 +39,15 @@ pyinstaller --onefile extract_keyword_lines.py \
     --hidden-import pvrs_utils \
     --add-data "argus_pvrs_keywords.txt:."
 
+echo "=== Building sample_token_editor ==="
+pyinstaller --onefile sample_token_editor.py \
+    --distpath dist --workpath build \
+    --paths grammar/gen \
+    --hidden-import PVRSLexer \
+    --hidden-import PVRSParser \
+    --hidden-import PVRSParserVisitor \
+    --add-data "grammar/gen:grammar/gen"
+
 echo ""
 echo "=== Build complete ==="
 echo "Executables are in: $SCRIPT_DIR/dist/"
@@ -50,3 +59,4 @@ echo "  ./dist/test_errors <drc_file>           # Parse and report syntax errors
 echo "  ./dist/expand_macros <input> [output]    # Expand DEFINE_FUN/CALL_FUN/VAR macros"
 echo "  ./dist/count_keywords <file>             # Count keyword occurrences"
 echo "  ./dist/extract_keyword_lines <file>      # Extract lines containing keywords"
+echo "  ./dist/sample_token_editor [file]         # TokenEditor demo (VAR/FUN display)"
