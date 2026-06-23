@@ -6,3 +6,4 @@ build/
 *.spec
 tests/
 *.bak
+.claude/settings.local.json
