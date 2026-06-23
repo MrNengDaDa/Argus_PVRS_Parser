@@ -587,11 +587,11 @@ lvsGround
     ;
 
 varStmt
-    : VAR LPAREN ID atom+ RPAREN
+    : VAR LPAREN name (name | SUB? atom)+ RPAREN
     ;
 
 defineFun
-    : DEFINE_FUN ID ID* LBRACE defineFunBody RBRACE
+    : DEFINE_FUN name ID* LBRACE defineFunBody RBRACE
     ;
 
 defineFunBody
@@ -599,7 +599,7 @@ defineFunBody
     ;
 
 callFun
-    : CALL_FUN LPAREN ID atom* RPAREN
+    : CALL_FUN LPAREN name (name | SUB? atom)* RPAREN
     ;
 
 // ============================================================

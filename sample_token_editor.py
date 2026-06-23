@@ -109,7 +109,7 @@ def demo(filepath: str):
         print(f"\n   [{c['kind']}] {c['name']}  (第 {c['line']} 行, "
               f"{c['count']} 个元素)")
         print(f"        类型: {', '.join(c['types'][:6])}")
-        _show_var_fun_info(te, c['name'])
+        # _show_var_fun_info(te, c['name'])
 
     # ================================================================
     # 4. 标注视图 — 查看所有可修改元素的位置
@@ -182,7 +182,7 @@ def demo(filepath: str):
     print("7. 保存")
     print("=" * 60)
 
-    result = te.save(backup=False)
+    result = te.save("tmp", backup=False)
     if result['ok']:
         print(f"   已保存: {filepath}")
     else:
