@@ -23,24 +23,42 @@ from full_token_editor import TokenEditor
 # ============================================================
 
 SAMPLE_CONTENT = """
-layer( M1   1 )
-layer( M2   2 )
-layer( GATE 3 )
+var(LAYER1 M1)
+var(LAYER2 M2)
+var(CHK_VAL 0.5)
 
-// 非 RULE 内的赋值语句
-P1 = geom_and( M1 GATE )
+define_fun SPACECHK la lb {
+    space( la lb < CHK_VAL )
+}
+
+define_fun WIDTHCHK la {
+    width( la < 2.0 adjacent < 90 point_touch region )
+}
 
 RULE check_m1_width {
-   L1 = width ( M1 < 0.5 adjacent < 90 point_touch region )
-   L2 = width ( M1 < 0.5 opposite angled_edge == 2 parallel_only region )
-   geom_or ( L1 L2 )
+    L1 = geom_and( LAYER1 LAYER2 )
+    L2 = call_fun( SPACECHK LAYER1 5 )
+    L3 = call_fun( WIDTHCHK LAYER1 )
 }
 
 RULE check_m2 {
-   L1 = width ( M2 < 0.6 adjacent < 90 point_touch region )
-   geom_flatten( L1 )
+    L1 = geom_and( LAYER1 LAYER2 )
 }
 """
+
+
+def _show_var_fun_info(te, container_name):
+    """显示指定容器的 VAR 和 CALL_FUN 引用信息。"""
+    var_refs = te.var_refs(container_name)
+    fun_refs = te.fun_refs(container_name)
+    if var_refs:
+        print(f"\n   引用 VAR ({len(var_refs)} 个):")
+        for name in sorted(var_refs):
+            print(f"     {name}  ← {var_refs[name]}")
+    if fun_refs:
+        print(f"\n   引用 CALL_FUN ({len(fun_refs)} 个):")
+        for name in sorted(fun_refs):
+            print(f"     {name}  ← {fun_refs[name]}")
 
 
 def demo(filepath: str):
@@ -54,6 +72,16 @@ def demo(filepath: str):
     print("=" * 60)
     te = TokenEditor(filepath)
     print(f"   文件: {filepath}")
+
+    # 显示全局 VAR/FUN 定义
+    if te.var_map:
+        print(f"\n   全局 VAR 定义 ({len(te.var_map)} 个):")
+        for k, v in sorted(te.var_map.items()):
+            print(f"     {k}: {v}")
+    if te.fun_map:
+        print(f"\n   全局 FUN 定义 ({len(te.fun_map)} 个):")
+        for k, v in sorted(te.fun_map.items()):
+            print(f"     {k}: {v}")
 
     # ================================================================
     # 2. 语法检查
@@ -78,9 +106,10 @@ def demo(filepath: str):
     print("3. 容器列表")
     print("=" * 60)
     for c in te.containers():
-        print(f"   [{c['kind']}] {c['name']}  (第 {c['line']} 行, "
+        print(f"\n   [{c['kind']}] {c['name']}  (第 {c['line']} 行, "
               f"{c['count']} 个元素)")
         print(f"        类型: {', '.join(c['types'][:6])}")
+        _show_var_fun_info(te, c['name'])
 
     # ================================================================
     # 4. 标注视图 — 查看所有可修改元素的位置
@@ -89,7 +118,6 @@ def demo(filepath: str):
     print("4. 标注视图（第一个 RULE 容器）")
     print("=" * 60)
 
-    # 找第一个 RULE 容器
     rule_name = None
     for c in te.containers():
         if c['kind'] == 'RULE':
@@ -99,6 +127,7 @@ def demo(filepath: str):
     if rule_name:
         print(f"\n   容器: {rule_name}\n")
         print(te.annotated_text(rule_name))
+        _show_var_fun_info(te, rule_name)
         print(f"\n{te.annotated_legend(rule_name)}")
 
     # ================================================================
@@ -109,13 +138,11 @@ def demo(filepath: str):
     print("=" * 60)
 
     if rule_name:
-        # 5a. 按文本批量替换
-        print(f"\n   [a] replace_by_text — 将所有 M1 → METAL1")
-        ok = te.replace_by_text(rule_name, "M1", "METAL1")
+        print(f"\n   [a] replace_by_text — 将所有 M1 → M1_NEW")
+        ok = te.replace_by_text(rule_name, "M1", "M1_NEW")
         print(f"       结果: {'成功' if ok else '无匹配'}")
 
-        # 5b. 按编号精确修改
-        print(f"\n   [b] replace_by_index — 第 4 个元素改为 '< 1.0'")
+        print(f"\n   [b] replace_by_index — 第 3 个元素改为 '< 1.0'")
         ok = te.replace_by_index(rule_name, 4, "< 1.0")
         print(f"       结果: {'成功' if ok else '越界'}")
 
@@ -143,7 +170,6 @@ def demo(filepath: str):
         print(te.annotated_text(rule_name))
         print(f"\n{te.annotated_legend(rule_name)}")
 
-    # 显示待保存的修改
     pending = te.pending_tokens()
     print(f"\n   暂存修改: {len(pending)} 项")
     for t in pending:
@@ -165,7 +191,6 @@ def demo(filepath: str):
             print(f"     [{line}:{col}] {msg}")
         print(f"\n   修改已保留，修正后重新 save() 即可")
 
-    # 撤销修改（演示用，实际使用中通常不撤销）
     te.clear_changes()
     print(f"\n   已撤销修改（恢复原文件）")
 
@@ -181,7 +206,6 @@ def main():
             print(f"错误: 文件不存在 — {filepath}")
             sys.exit(1)
     else:
-        # 无参数时，用内置示例
         filepath = "C:/tmp/_sample_token_editor.pvrs"
         with open(filepath, 'w') as f:
             f.write(SAMPLE_CONTENT.strip())
