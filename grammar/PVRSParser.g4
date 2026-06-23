@@ -26,6 +26,8 @@ environment_stmt
     | ercResultDb | ercMaxResult | ercSummary | ercOutputCellName
     | lvsPower | lvsGround
     | drcRuleMap
+    | varStmt
+    | defineFun
     ;
 
 op_statement
@@ -40,6 +42,7 @@ op_statement
     | dfmBuildProperty | dfmCopy | dfmResult | dfmBuildPropertySelectAssistant | dfmCheckSpace | dfmOrEdge
     | geomNet | geomGetCellBoundary | geomWithAdjacent
     | geomGetLayoutBoundary | geomMerge | geomFlatten
+    | callFun
     ;
 
 // ============================================================
@@ -582,6 +585,18 @@ lvsPower
 
 lvsGround
     : LVS_GROUND LPAREN (ID | STRING)+ RPAREN
+    ;
+
+varStmt
+    : VAR LPAREN ID atom+ RPAREN
+    ;
+
+defineFun
+    : DEFINE_FUN ID ID* LBRACE (derived_layer_def | op_statement)* RBRACE
+    ;
+
+callFun
+    : CALL_FUN LPAREN ID atom* RPAREN
     ;
 
 // ============================================================
