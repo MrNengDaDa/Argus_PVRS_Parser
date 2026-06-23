@@ -108,6 +108,22 @@ class TokenEditor:
                 return self.source[c['char_start']:c['char_stop'] + 1]
         return ''
 
+    def var_refs(self, container: str) -> Dict[str, str]:
+        """返回该容器内引用的所有 VAR 定义 {var_name: var_full_text}。"""
+        result = {}
+        for t in self.tokens(container):
+            if t.text in self.var_map and t.text not in result:
+                result[t.text] = self.var_map[t.text]
+        return result
+
+    def fun_refs(self, container: str) -> Dict[str, str]:
+        """返回该容器内引用的所有 CALL_FUN 定义 {fun_name: fun_full_text}。"""
+        result = {}
+        for t in self.tokens(container):
+            if t.text in self.fun_map and t.text not in result:
+                result[t.text] = self.fun_map[t.text]
+        return result
+
     # ---- 修改 ----
 
     def replace_by_text(self, container: str, old_text: str,
