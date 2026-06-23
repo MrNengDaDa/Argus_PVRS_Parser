@@ -22,8 +22,8 @@ class TokenEditorPlugin:
         return self._editor.check()
 
     def show(self, container: str) -> tuple:
-        return (self._editor.annotated_text(container),
-                self._editor.annotated_legend(container))
+        text, segs = self._editor.annotated_text(container)
+        return (text, segs, self._editor.annotated_legend(container))
 
     def replace_by_text(self, container: str, old_text: str,
                         new_text: str) -> bool:

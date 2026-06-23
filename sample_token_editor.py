@@ -126,7 +126,8 @@ def demo(filepath: str):
 
     if rule_name:
         print(f"\n   容器: {rule_name}\n")
-        print(te.annotated_text(rule_name))
+        text, _ = te.annotated_text(rule_name)
+        print(text)
         _show_var_fun_info(te, rule_name)
         print(f"\n{te.annotated_legend(rule_name)}")
 
@@ -167,7 +168,7 @@ def demo(filepath: str):
 
     if rule_name:
         print(f"\n   (已修改的元素显示新值)\n")
-        print(te.annotated_text(rule_name))
+        print(te.annotated_text(rule_name)[0])
         print(f"\n{te.annotated_legend(rule_name)}")
 
     pending = te.pending_tokens()

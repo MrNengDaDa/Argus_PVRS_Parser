@@ -39,7 +39,7 @@ def main():
         if idx + 1 < len(sys.argv):
             name = sys.argv[idx + 1]
             print(f'\n========== {name} ==========')
-            print(te.annotated_text(name))
+            print(te.annotated_text(name)[0])
             print(te.annotated_legend(name))
 
     if '--sample' in sys.argv:
@@ -57,7 +57,7 @@ def main():
         print(f'\n[示例2] replace_by_index — 按编号替换')
         print(f'  结果: {plugin.replace_by_index(c, 3, "M99")}')
         print(f'\n[示例3] 标注视图:')
-        text, legend = plugin.show(c)
+        text, _, legend = plugin.show(c)
         print(text)
         print(legend)
         result = plugin.save(backup=False)

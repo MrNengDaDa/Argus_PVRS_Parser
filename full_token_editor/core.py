@@ -154,10 +154,19 @@ class TokenEditor:
 
     # ---- 标注视图 ----
 
-    def annotated_text(self, container: str) -> str:
+    def annotated_text(self, container: str):
+        """
+        返回带 <<N:value>> 标注的容器文本，以及结构化的段列表。
+
+        返回
+        ----
+        (annotated_str, segments)
+          annotated_str : str  — 标注后的显示文本
+          segments : [[text, index], ...] — 每个段是 [文本, 编号或False]
+        """
         ts = self.tokens(container)
         if not ts:
-            return self.container_text(container)
+            return (self.container_text(container), [])
 
         text = self.container_text(container)
         bounds_start = None
@@ -166,15 +175,38 @@ class TokenEditor:
                 bounds_start = c['char_start']
                 break
         if bounds_start is None:
-            return text
+            return (text, [])
 
-        for t in reversed(ts):
+        # 用偏移量记录每个 token 的替换信息
+        replacements = {}  # {local_start: (local_stop, effective_text, index)}
+        for t in ts:
             local_start = t.char_start - bounds_start
             local_stop = t.char_stop - bounds_start
             effective = t.new_text if t.modified else t.text
-            marker = f'<<{t.index}:{effective}>>'
-            text = text[:local_start] + marker + text[local_stop + 1:]
-        return text
+            replacements[local_start] = (local_stop, effective, t.index)
+
+        # 从左到右构建标注字符串 + 段列表
+        annotated_parts = []
+        segments = []
+        i = 0
+        while i < len(text):
+            if i in replacements:
+                local_stop, effective, idx = replacements[i]
+                marker = f'<<{idx}:{effective}>>'
+                annotated_parts.append(marker)
+                segments.append([effective, idx])
+                i = local_stop + 1
+            else:
+                # 收集连续的非 token 文本
+                j = i
+                while j < len(text) and j not in replacements:
+                    j += 1
+                seg = text[i:j]
+                annotated_parts.append(seg)
+                segments.append([seg, False])
+                i = j
+
+        return (''.join(annotated_parts), segments)
 
     def annotated_legend(self, container: str) -> str:
         ts = self.tokens(container)
