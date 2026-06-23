@@ -183,7 +183,19 @@ class TokenEditor:
             'containers': self.containers(),
         }
 
-    def save(self, output_path: str = None, backup: bool = True) -> dict:
+    def save(self, output_path: str = None, backup: bool = True,
+             original_path: str = None) -> dict:
+        """
+        Save changes. If the expanded text contains /*:...*/ markers and
+        original_path is given, reverse-map changes to the original file.
+        Otherwise, normal save.
+        """
+        # Detect annotated mode
+        has_markers = '/*:' in self.source
+        if has_markers and original_path:
+            return self._reverse_save(original_path, backup)
+
+        # Normal save
         text = self.source
         changes = sorted(self.pending_tokens(), key=lambda t: -t.char_start)
         for t in changes:
@@ -207,6 +219,266 @@ class TokenEditor:
         with open(target, 'w', encoding='utf-8', newline='') as f:
             f.write(text)
         return {'ok': True, 'errors': []}
+
+    def _has_markers(self) -> bool:
+        return '/*:' in self.source
+
+    def _reverse_save(self, original_path: str, backup: bool = True) -> dict:
+        """
+        Scan the annotated expanded text left-to-right. For each /*:...*/
+        marker region, apply reverse mapping rules. Collector identity text
+        is copied with direct changes applied.
+
+        Returns the reversed text and writes it to original_path.
+        """
+        import re
+        changes = {(cs, ce): nt for cs, ce, nt in
+                   [(t.char_start, t.char_stop, t.new_text)
+                    for t in self.pending_tokens()]}
+
+        out = []
+        pos = 0
+        text = self.source
+
+        while pos < len(text):
+            ms = text.find('/*:', pos)
+            if ms == -1:
+                out.append(self._apply_direct(text[pos:], changes, pos))
+                break
+
+            # Identity text before marker
+            if ms > pos:
+                out.append(self._apply_direct(text[pos:ms], changes, pos))
+
+            me = text.find('*/', ms + 3)
+            if me == -1:
+                out.append(text[ms:])
+                break
+
+            marker = text[ms:me + 2]
+
+            if marker.startswith('/*:V:'):
+                var_name, var_value, handled_to = self._parse_var_marker(text, ms, me, changes)
+                out.append(var_value if var_name is None else var_name)
+                pos = handled_to
+
+            elif marker.startswith('/*:F:'):
+                func_result, handled_to = self._parse_func_marker(text, ms, me, changes)
+                out.append(func_result)
+                pos = handled_to
+
+            elif marker.startswith('/*:A:'):
+                # Skip over ARG region entirely (processed inside FUNC)
+                aend = text.find('/*:A*/', me + 2)
+                pos = (aend + 5) if aend != -1 else (me + 2)  # /*:A*/ = 5 chars
+
+            else:
+                out.append(marker)
+                pos = me + 2
+
+        result = ''.join(out)
+        # Merge reversed RULE bodies into the original file
+        merged = self._merge_into_original(result, original_path)
+
+        target = original_path
+        if backup:
+            ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+            with open(f'{target}.{ts}.bak', 'w', encoding='utf-8', newline='') as f:
+                with open(target, 'r', encoding='utf-8', errors='replace') as fin:
+                    f.write(fin.read())
+
+        if self._crlf:
+            merged = merged.replace('\n', '\r\n')
+        with open(target, 'w', encoding='utf-8', newline='') as f:
+            f.write(merged)
+        return {'ok': True, 'errors': [], 'reversed': True,
+                'target': target}
+
+    def _merge_into_original(self, reversed_text, original_path):
+        """
+        Replace RULE bodies in the original file with the reversed content.
+        Keeps VAR and DEFINE_FUN definitions intact.
+        """
+        # Read original file
+        with open(original_path, 'r', encoding='utf-8', errors='replace') as f:
+            orig = f.read()
+
+        # Find RULE boundaries in both files
+        # Use simple brace matching on original to find RULE positions
+        import re
+        orig_rules = {}
+        for m in re.finditer(r'\bRULE\s+(\S+)', orig):
+            name = m.group(1).strip('"')
+            brace = orig.find('{', m.end())
+            if brace == -1:
+                continue
+            depth = 0
+            end = -1
+            for i in range(brace, len(orig)):
+                if orig[i] == '{':
+                    depth += 1
+                elif orig[i] == '}':
+                    depth -= 1
+                    if depth == 0:
+                        end = i
+                        break
+            if end != -1:
+                orig_rules[name] = (brace + 1, end)  # exclusive end
+
+        # Find RULE boundaries in reversed text
+        reversed_rules = {}
+        for m in re.finditer(r'\bRULE\s+(\S+)', reversed_text):
+            name = m.group(1).strip('"')
+            brace = reversed_text.find('{', m.end())
+            if brace == -1:
+                continue
+            depth = 0
+            end = -1
+            for i in range(brace, len(reversed_text)):
+                if reversed_text[i] == '{':
+                    depth += 1
+                elif reversed_text[i] == '}':
+                    depth -= 1
+                    if depth == 0:
+                        end = i
+                        break
+            if end != -1:
+                reversed_rules[name] = reversed_text[brace + 1:end]
+
+        # Replace RULE bodies in original from right to left
+        replacements = []
+        for name, (body_start, body_end) in orig_rules.items():
+            if name in reversed_rules:
+                replacements.append((body_start, body_end,
+                                     reversed_rules[name]))
+        replacements.sort(key=lambda x: -x[0])
+
+        for rs, re_pos, new_body in replacements:
+            orig = orig[:rs] + new_body + orig[re_pos:] + ''
+        return orig
+
+    # ---- marker parsing helpers ----
+
+    def _apply_direct(self, seg, changes, offset):
+        """Apply pending changes directly to an identity segment."""
+        result = list(seg)
+        for (cs, ce), nt in changes.items():
+            ls, le = cs - offset, ce - offset
+            if 0 <= ls < len(seg) and 0 <= le < len(seg):
+                result[ls:le + 1] = nt
+        return ''.join(result)
+
+    def _parse_var_marker(self, text, ms, me, changes):
+        """
+        Parse /*:V:name=value*/ ... /*:V*/.
+        Returns (var_name, resolved_value, new_pos) where var_name=None
+        means use resolved_value as literal.
+        """
+        import re
+        m = re.match(r'/\*:V:([^=]+)=(.*?)\*/', text[ms:me + 2])
+        if not m:
+            return (None, text[ms:me + 2], me + 2)
+        var_name = m.group(1)
+        var_value = m.group(2)
+
+        end_marker = text.find('/*:V*/', me + 2)
+        if end_marker == -1:
+            return (None, text[ms:me + 2], me + 2)
+
+        val_start = me + 2
+        val_end = end_marker - 1
+        effective = var_value
+        modified = False
+        for (cs, ce), nt in changes.items():
+            if cs >= val_start and ce <= val_end:
+                effective = nt
+                modified = True
+                break
+
+        if modified:
+            return (None, effective, end_marker + 6)  # literal, skip /*:V*/
+        return (var_name, None, end_marker + 6)  # VAR ref
+
+    def _parse_func_marker(self, text, ms, me, changes):
+        """
+        Parse /*:F:name:idx:args*/ body /*:FEND*/.
+        Returns (result_text, new_pos).
+        """
+        import re
+        m = re.match(r'/\*:F:([^:]+):(\d+):(.*?)\*/', text[ms:me + 2])
+        if not m:
+            return (text[ms:me + 2], me + 2)
+
+        func_name = m.group(1)
+        arg_map_str = m.group(3)
+        args = re.findall(r'([^:=]+)=([^:]*)', arg_map_str)
+
+        fend = text.find('/*:FEND*/', me + 2)
+        if fend == -1:
+            return (text[ms:me + 2], me + 2)
+
+        body_start = me + 2
+        body_end = fend
+        body = text[body_start:body_end]
+
+        # Check consistency: each arg's occurrences must all be either
+        # unchanged or changed to the same value
+        new_arg_values = {}  # {arg_name: new_value}
+        for arg_name, arg_val in args:
+            effective_vals = set()
+            for am in re.finditer(rf'/\*:A:{re.escape(arg_name)}:(\d+)\*/', body):
+                aend = body.find('/*:A*/', am.end())
+                if aend == -1:
+                    continue
+                val = body[am.end():aend].strip()
+                abs_s = body_start + am.end()
+                abs_e = body_start + aend - 1
+                was_modified = False
+                for (cs, ce), nt in changes.items():
+                    if cs >= abs_s and ce <= abs_e:
+                        val = nt
+                        was_modified = True
+                        break
+                if was_modified:
+                    effective_vals.add(re.sub(r'/\*:V[^*/\n]*\*/\s*', '', val).strip())
+                else:
+                    effective_vals.add(arg_val)
+            if len(effective_vals) > 1:
+                return (self._keep_expanded(body, changes, body_start), fend + 9)
+            if effective_vals and effective_vals != {arg_val}:
+                new_arg_values[arg_name] = effective_vals.pop()
+
+        # Check body for non-arg changes
+        for (cs, ce), nt in changes.items():
+            if cs >= body_start and ce <= body_end:
+                if not self._in_arg_range(cs, ce, body, body_start):
+                    return (self._keep_expanded(body, changes, body_start), fend + 9)
+
+        # Build CALL_FUN
+        call_args = ' '.join(new_arg_values.get(a, v) for a, v in args)
+        return (f'CALL_FUN( {func_name} {call_args} )', fend + 9)
+
+    def _in_arg_range(self, cs, ce, body, body_offset):
+        """Check if a change position falls within any /*:A:...*/ region."""
+        import re
+        for am in re.finditer(r'/\*:A:[^:]+:\d+\*/', body):
+            aend = body.find('/*:A*/', am.end())
+            if aend == -1:
+                continue
+            abs_s = body_offset + am.end()
+            abs_e = body_offset + aend - 1
+            if cs >= abs_s and ce <= abs_e:
+                return True
+        return False
+
+    def _keep_expanded(self, body, changes, offset):
+        """Apply direct changes to body text and return it."""
+        result = body
+        for (cs, ce), nt in sorted(changes.items(), key=lambda x: -x[0]):
+            if cs >= offset and ce <= offset + len(body):
+                ls, le = cs - offset, ce - offset
+                result = result[:ls] + nt + result[le + 1:]
+        return result
 
     def _validate_text(self, text: str) -> list:
         stream = InputStream(text)

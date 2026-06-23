@@ -1,0 +1,30 @@
+// ===========================
+// 变量定义
+// ===========================
+var(LAYER1 M1)
+var(LAYER2 M2)
+var(CHK_VAL 0.5)
+
+// ===========================
+// 函数定义
+// ===========================
+define_fun SPACECHK la lb {
+    space( la lb < CHK_VAL )
+}
+
+define_fun WIDTHCHK la {
+    width( la < 2.0 adjacent < 90 point_touch region )
+}
+
+// ===========================
+// RULE 块
+// ===========================
+RULE check_m1_width {
+    L1 = geom_and( LAYER1 LAYER2 )
+    L2 = CALL_FUN( SPACECHK LAYER1 5 )
+    L3 = CALL_FUN( WIDTHCHK LAYER1 )
+}
+
+RULE check_m2 {
+    L1 = geom_and( LAYER1 LAYER2 )
+}

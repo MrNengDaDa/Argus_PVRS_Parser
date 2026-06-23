@@ -317,6 +317,198 @@ def remove_vars(text):
     return re.sub(r'(?i)\bvar\s*\([^)]+\)', '', text)
 
 
+# ---- Annotated expansion (with roundtrip markers) ----
+
+def substitute_args_annotated(body, def_args, call_args, func_name):
+    """Like substitute_args, but wraps each occurrence with /*:A:name:idx*/ ... /*:A*/."""
+    result = body
+    for da, ca in zip(def_args, call_args):
+        occ_idx = 0
+        def arg_replacer(m):
+            nonlocal occ_idx
+            marker = f'/*:A:{da}:{occ_idx}*/ {ca} /*:A*/'
+            occ_idx += 1
+            return marker
+        result = re.sub(r'\b' + re.escape(da) + r'\b', arg_replacer, result, flags=re.IGNORECASE)
+        count = occ_idx
+        if count > 0:
+            log(f'    sub  {da} -> {ca}  ({count} occurrence(s), annotated)', depth=2)
+    return result
+
+
+def _find_marker_ranges(text):
+    """Return [(start, end), ...] for all /*:...*/ marker regions."""
+    ranges = []
+    pos = 0
+    while True:
+        s = text.find('/*:', pos)
+        if s == -1:
+            break
+        e = text.find('*/', s + 3)
+        if e == -1:
+            break
+        ranges.append((s, e + 2))
+        pos = e + 2
+    return ranges
+
+
+def _in_marker_ranges(pos, ranges):
+    """Check if a position falls inside any marker range."""
+    for s, e in ranges:
+        if s <= pos < e:
+            return True
+    return False
+
+
+def substitute_vars_annotated(text, vars_map):
+    """
+    Like substitute_vars, but wraps each substituted value with
+    /*:V:name=value*/ ... /*:V*/ markers.
+
+    Skips text inside /*:...*/ marker regions (FUNC/ARG/VAR annotations
+    should not be modified by VAR expansion).
+    """
+    if not vars_map:
+        return text
+
+    result = text
+    for name, value in vars_map.items():
+        pattern = r'\b' + re.escape(name) + r'\b'
+        # Re-scan marker ranges for current result string (shifts with each sub)
+        marker_ranges = _find_marker_ranges(result)
+
+        def make_replacer(current_value, protected):
+            def replacer(m2):
+                if _in_marker_ranges(m2.start(), protected):
+                    return m2.group(0)
+                return f'/*:V:{name}={current_value}*/ {current_value} /*:V*/'
+            return replacer
+
+        before = result
+        result = re.sub(pattern, make_replacer(value, marker_ranges), result, flags=re.IGNORECASE)
+        count = len(re.findall(pattern, before, flags=re.IGNORECASE))
+        if count > 0:
+            log(f'  VAR sub  {name} -> "{value}"  ({count} occurrence(s), annotated)')
+    return result
+
+
+def expand_call_in_text_annotated(text, funcs, phase=''):
+    """Like expand_call_in_text, but wraps output with FUNC markers."""
+    name_pat = _call_name_pattern()
+    arg_pat = _call_arg_pattern()
+    pattern = re.compile(
+        rf'(?i)\bcall_fun\s*\(\s*({name_pat})((?:\s+(?:{arg_pat}))*)\s*\)'
+    )
+
+    call_indexes = {}  # {FUNC_NAME: next_call_index}
+    changed = False
+    total_replaced = 0
+
+    def replacer(m):
+        nonlocal changed, total_replaced
+        fname = m.group(1).upper()
+        args_str = m.group(2).strip()
+        call_args = re.findall(arg_pat, args_str) if args_str else []
+
+        if fname not in funcs:
+            log(f'CALL_FUN [{m.group(1)}] -> UNDEFINED, kept as-is', depth=1)
+            return m.group(0)
+
+        changed = True
+        total_replaced += 1
+        info = funcs[fname]
+        call_indexes.setdefault(fname, 0)
+        call_indexes[fname] += 1
+        idx = call_indexes[fname]
+
+        expanded = substitute_args_annotated(info['body'], info['args'], call_args, fname)
+        arg_map = ':'.join(f'{a}={v}' for a, v in zip(info['args'], call_args))
+        marker_start = f'/*:F:{info["name"]}:{idx}:{arg_map}*/'
+        marker_end = '/*:FEND*/'
+        result = f'{marker_start}\n{expanded}\n{marker_end}'
+
+        log(f'CALL_FUN [{info["name"]}#{idx}]  call_args=({", ".join(call_args)})  '
+            f'def_args=({", ".join(info["args"])})  '
+            f'expanded_lines={_count_lines(expanded)}',
+            depth=1)
+        return result
+
+    new_text = pattern.sub(replacer, text)
+    if total_replaced:
+        log(f'{phase}Expanded {total_replaced} CALL_FUN occurrence(s) (annotated)')
+    return new_text, changed
+
+
+def expand_all_annotated(text):
+    """
+    Full pipeline with roundtrip annotation markers.
+
+    Key difference from expand_all: CALL_FUN is expanded BEFORE VAR,
+    so that FUNC markers record original VAR names as arg values.
+    After FUNC expansion, VARs are expanded with markers, including
+    VAR references inside the expanded function bodies.
+    """
+    log('=' * 60)
+    log('STEP 1: Strip comments')
+    before_len = len(text)
+    text = strip_comments(text)
+    log(f'  {before_len} -> {len(text)} chars (-{before_len - len(text)})')
+
+    log('=' * 60)
+    log('STEP 2: Parse VAR definitions')
+    vars_map = parse_vars(text)
+
+    log('=' * 60)
+    log('STEP 3: Parse DEFINE_FUN definitions')
+    funcs = parse_define_funs(text)
+
+    # Remove VAR and DEFINE_FUN blocks before expansion
+    if vars_map:
+        text = remove_vars(text)
+
+    if funcs:
+        log('=' * 60)
+        log('STEP 4: Expand CALL_FUN within DEFINE_FUN bodies (pre-expand, no markers)')
+        for name, info in funcs.items():
+            body = info['body']
+            changed = True
+            iteration = 0
+            while changed:
+                iteration += 1
+                body, changed = expand_call_in_text(body, funcs,
+                                                    phase=f'  [{info["name"]}] iter{iteration}: ')
+            if iteration > 1:
+                log(f'  [{info["name"]}] converged after {iteration} iterations')
+            info['body'] = body
+
+        log('=' * 60)
+        log('STEP 5: Remove DEFINE_FUN blocks from text')
+        text = remove_define_funs(text, funcs)
+
+        log('=' * 60)
+        log('STEP 6: Expand CALL_FUN in main text (annotated)')
+        changed = True
+        iteration = 0
+        while changed:
+            iteration += 1
+            text, changed = expand_call_in_text_annotated(text, funcs,
+                                                          phase=f'  Main iter{iteration}: ')
+        if iteration > 1:
+            log(f'  Main converged after {iteration} iterations')
+
+    # Now expand VARs — this handles VAR references in both identity text
+    # and inside the expanded FUNC bodies (which had VAR names as args)
+    if vars_map:
+        log('=' * 60)
+        log('STEP 7: Expand VARs (annotated, after FUNC expansion)')
+        text = substitute_vars_annotated(text, vars_map)
+        text = re.sub(r'(?<=[\s(])-\s+(?=[\d.])', '-', text)
+
+    log('=' * 60)
+    log('DONE')
+    return text
+
+
 def expand_all(text):
     """Full pipeline: strip comments, expand macros recursively, remove DEFINE_FUNs."""
     log('=' * 60)
@@ -382,10 +574,12 @@ def main():
     args = [a for a in sys.argv[1:] if not a.startswith('-')]
     flags = [a for a in sys.argv[1:] if a.startswith('-')]
     VERBOSE = '-v' in flags or '--verbose' in flags
+    annotate = '--annotate' in flags
 
     if len(args) < 1:
-        print(f'Usage: python {sys.argv[0]} <input_file> [output_file] [-v]')
-        print(f'  -v   verbose: print parse/expansion log to stderr')
+        print(f'Usage: python {sys.argv[0]} <input_file> [output_file] [-v] [--annotate]')
+        print(f'  -v          verbose: print parse/expansion log to stderr')
+        print(f'  --annotate  embed roundtrip markers (/*:V:...*/ /*:F:...*/) for reverse editing')
         sys.exit(1)
 
     input_path = Path(args[0])
@@ -398,7 +592,10 @@ def main():
         original = f.read()
     log(f'File size: {len(original)} chars, {_count_lines(original)} lines')
 
-    result = expand_all(original)
+    if annotate:
+        result = expand_all_annotated(original)
+    else:
+        result = expand_all(original)
 
     output_path = args[1] if len(args) >= 2 else None
     if output_path:

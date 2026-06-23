@@ -1,0 +1,98 @@
+============================================================
+Test 1: expand with --annotate
+============================================================
+Input:  tests/test_roundtrip.pvrs
+Output: tests/test_roundtrip_exp.pvrs
+
+Expected markers in output:
+  - /*:V:LAYER1=M1*/ M1 /*:V*/       (VAR substitution)
+  - /*:V:LAYER2=M2*/ M2 /*:V*/
+  - /*:F:SPACECHK:1:la=LAYER1:lb=5*/  (FUNC expansion)
+  - /*:F:WIDTHCHK:1:la=LAYER1*/
+  - /*:A:la:0*/ ... /*:A*/             (ARG markers)
+  - /*:FEND*/
+
+============================================================
+Test 2: load with TokenEditor
+============================================================
+Containers found: check_m1_width, check_m2
+
+check_m1_width elements (16):
+  <<1:L1>> = <<2:geom_and>>( /*:V:LAYER1=M1*/ <<3:M1>> /*:V*/ /*:V:LAYER2=M2*/ <<4:M2>> /*:V*/ )
+  <<5:L2>> = /*:F:SPACECHK:1:la=LAYER1:lb=5*/
+<<6:space>>( /*:A:la:0*/ /*:V:LAYER1=M1*/ <<7:M1>> /*:V*/ /*:A*/ /*:A:lb:0*/ <<8:5>> /*:A*/ ... )
+/*:FEND*/
+  <<10:L3>> = /*:F:WIDTHCHK:1:la=LAYER1*/
+<<11:width>>( /*:A:la:0*/ /*:V:LAYER1=M1*/ <<12:M1>> /*:V*/ /*:A*/ ... )
+/*:FEND*/
+
+check_m2 elements (4):
+  <<1:L1>> = <<2:geom_and>>( /*:V:LAYER1=M1*/ <<3:M1>> /*:V*/ /*:V:LAYER2=M2*/ <<4:M2>> /*:V*/ )
+
+============================================================
+Test 3: Scenario A — modify VAR-value → write literal
+============================================================
+Change: <<3>> M1 (identity text, line 1 of check_m1_width) → M1_NEW
+
+Expected in reversed output:
+  L1 = geom_and( M1_NEW LAYER2 )     ← M1 becomes literal, LAYER2 stays VAR ref
+
+============================================================
+Test 4: Scenario B — modify FUNC arg → update CALL_FUN
+============================================================
+Change: <<7>> M1 (inside SPACECHK FUNC, arg la:0) → MET1
+
+Expected in reversed output:
+  L2 = CALL_FUN( SPACECHK MET1 5 )   ← arg pushed to CALL_FUN
+
+============================================================
+Test 5: Scenario C — no changes → keep VAR refs
+============================================================
+No changes to: LAYER2, WIDTHCHK args
+
+Expected in reversed output:
+  L1 = geom_and( ..., LAYER2 )       ← unchanged, VAR ref preserved
+  L3 = CALL_FUN( WIDTHCHK LAYER1 )   ← unchanged, VAR ref preserved
+
+============================================================
+Test 6: Scenario D — check_m2 unchanged
+============================================================
+No changes to check_m2
+
+Expected in reversed output:
+  L1 = geom_and( LAYER1 LAYER2 )     ← both VAR refs preserved
+
+============================================================
+Test 7: Scenario E — VAR and DEFINE_FUN definitions preserved
+============================================================
+Expected in reversed output:
+  var(LAYER1 M1)               ← definition kept
+  var(LAYER2 M2)
+  var(CHK_VAL 0.5)
+  define_fun SPACECHK ...      ← definition kept
+  define_fun WIDTHCHK ...
+
+============================================================
+Final expected output after reverse:
+============================================================
+var(LAYER1 M1)
+var(LAYER2 M2)
+var(CHK_VAL 0.5)
+
+define_fun SPACECHK la lb {
+    space( la lb < CHK_VAL )
+}
+
+define_fun WIDTHCHK la {
+    width( la < 2.0 adjacent < 90 point_touch region )
+}
+
+RULE check_m1_width {
+    L1 = geom_and( M1_NEW LAYER2 )
+    L2 = CALL_FUN( SPACECHK MET1 5 )
+    L3 = CALL_FUN( WIDTHCHK LAYER1 )
+}
+
+RULE check_m2 {
+    L1 = geom_and( LAYER1 LAYER2 )
+}
