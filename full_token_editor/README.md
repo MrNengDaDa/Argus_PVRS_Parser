@@ -164,13 +164,13 @@ RULE check_m1_width {
 |------|------|------|
 | `container` | `str` | 容器名 |
 
-**输出**：`str` — 编号说明表。
+**输出**：`{index: [type_name, text, modified, line], ...}` — `index` 为标注编号，值列表包含类型名、文本、是否已修改、行号。可用 `TokenEditor.format_legend()` 转为可读字符串。
 
 **使用样例**
 
 ```python
-legend = te.annotated_legend("chk1")
-print(legend)
+legend = te.annotated_legend("chk1")  # dict
+print(TokenEditor.format_legend(legend))  # 格式化输出
 ```
 
 输出示例：
@@ -236,7 +236,7 @@ print(ok)  # False
 
 ```python
 # 先查看标注视图确认目标元素的编号
-print(te.annotated_legend("chk1"))
+print(TokenEditor.format_legend(te.annotated_legend("chk1")))
 # <<3>> Op_layer    'M1'   ...  ← 要修改这个
 
 ok = te.replace_by_index("chk1", 3, "MET2")
@@ -327,6 +327,53 @@ print(len(te.pending_tokens()))  # 0 — 全部撤销
 
 ---
 
+#### 10. `var_refs(container)`
+
+**功能**：返回该容器内引用的所有 VAR 变量定义。扫描容器内的所有 token，匹配 `var_map` 中的变量名，返回对应的完整 `var(...)` 文本。
+
+**输入**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `container` | `str` | 容器名 |
+
+**输出**：`{var_name: var_full_text, ...}` — 变量名到完整 VAR 定义文本的映射。
+
+**使用样例**
+
+```python
+for name, text in te.var_refs("chk1").items():
+    print(f"{name} ← {text}")
+# LAYER1 ← var(LAYER1 M1)
+# LAYER2 ← var(LAYER2 M2)
+```
+
+---
+
+#### 11. `fun_refs(container)`
+
+**功能**：返回该容器内引用的所有 CALL_FUN 函数定义。扫描容器内的所有 token，匹配 `fun_map` 中的函数名，返回对应的完整 `define_fun(...) { ... }` 文本。
+
+**输入**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `container` | `str` | 容器名 |
+
+**输出**：`{fun_name: fun_full_text, ...}` — 函数名到完整 DEFINE_FUN 定义文本的映射。
+
+**使用样例**
+
+```python
+for name, text in te.fun_refs("chk1").items():
+    print(f"{name} ← {text}")
+# SPACECHK ← define_fun SPACECHK la lb {
+#     space( la lb < 0.5 )
+# }
+```
+
+---
+
 ### 其他 API
 
 ---
@@ -357,6 +404,38 @@ for line, col, msg in te.parse_errors:
 ```python
 if te.has_errors:
     print("文件存在语法错误")
+```
+
+---
+
+#### `var_map`
+
+**功能**：文件中所有 VAR 定义的映射。
+
+**输入**：无
+
+**输出**：`{var_name: "var(...)", ...}` — 变量名到完整 VAR 语句文本。
+
+```python
+for k, v in te.var_map.items():
+    print(f"{k}: {v}")
+# LAYER1: var(LAYER1 M1)
+# LAYER2: var(LAYER2 M2)
+```
+
+---
+
+#### `fun_map`
+
+**功能**：文件中所有 DEFINE_FUN 定义的映射。
+
+**输入**：无
+
+**输出**：`{fun_name: "define_fun ... { ... }", ...}` — 函数名到完整定义文本。
+
+```python
+for k, v in te.fun_map.items():
+    print(f"{k}: {v}")
 ```
 
 ---
@@ -440,6 +519,25 @@ for t in te.all_tokens():
 ```python
 print(te.container_text("chk1"))
 # "RULE chk1 {\n   L1 = width ( M1 ...\n}"
+```
+
+---
+
+#### `format_legend(legend)`
+
+**功能**：将 `annotated_legend()` 返回的 dict 格式化为可读字符串。
+
+**输入**
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `legend` | `dict` | `annotated_legend()` 的返回值 |
+
+**输出**：`str`
+
+```python
+legend = te.annotated_legend("chk1")
+print(TokenEditor.format_legend(legend))
 ```
 
 ---
