@@ -12,9 +12,8 @@ pvrFile : statement* EOF ;
 // ============================================================
 statement : environment_stmt | derived_layer_def | op_statement | rule_statement | groupRule ;
 derived_layer_def : layerRef ASSIGN op_statement ;
-rule_statement : RULE ruleName LBRACE rule_body RBRACE ;
+rule_statement : RULE name LBRACE rule_body RBRACE ;
 rule_body : (derived_layer_def | op_statement)*;
-ruleName : ID | STRING ;
 environment_stmt
     : drcOutputRuleText | drcOutputCellName | labelLevel
     | precisionStmt | layerStmt | layerMapStmt
@@ -88,7 +87,7 @@ geomWithWidth
     : TILDE? GEOM_WITH_WIDTH LPAREN op_layer constraint RPAREN ;
 
 geomWithLabel
-    : TILDE? GEOM_WITH_LABEL LPAREN op_layer (ID | STRING) op_layer? TOP_CELL? CASE_SENSITIVE? RPAREN ;
+    : TILDE? GEOM_WITH_LABEL LPAREN op_layer name op_layer? TOP_CELL? CASE_SENSITIVE? RPAREN ;
 
 // ============================================================
 // 10. GEOM_ENCLOSE
@@ -562,7 +561,7 @@ connectStmt : CONNECT LPAREN op_layer op_layer* ((BY | WITH) op_layer)? RPAREN ;
 layoutInput
     : LAYOUT_INPUT LPAREN FORMAT formatType RPAREN
     | LAYOUT_INPUT LPAREN PATH layoutPathSpec+ RPAREN
-    | LAYOUT_INPUT LPAREN TOP_CELL (ID | STRING) RPAREN
+    | LAYOUT_INPUT LPAREN TOP_CELL name RPAREN
     ;
 
 layoutPathSpec
@@ -580,11 +579,11 @@ layoutDeviceLayer
     ;
 
 lvsPower
-    : LVS_POWER LPAREN (ID | STRING)+ RPAREN
+    : LVS_POWER LPAREN name+ RPAREN
     ;
 
 lvsGround
-    : LVS_GROUND LPAREN (ID | STRING)+ RPAREN
+    : LVS_GROUND LPAREN name+ RPAREN
     ;
 
 varStmt
@@ -607,15 +606,15 @@ callFun
 // 27. DRC_RESULT, DRC_MAX_*, DRC_SUMMARY, GUI_PRIORITY
 // ============================================================
 drcResultDb
-    : DRC_RESULT LPAREN DB (ID | STRING) drcResultDbOption* RPAREN
+    : DRC_RESULT LPAREN DB name drcResultDbOption* RPAREN
     ;
 
 drcResultDbOption
     : TEXT_FORMAT
     | formatType
-    | WITH_PREFIX (ID | STRING)
-    | WITH_INJECTED_PREFIX (ID | STRING)
-    | WITH_APPEND (ID | STRING)
+    | WITH_PREFIX name
+    | WITH_INJECTED_PREFIX name
+    | WITH_APPEND name
     | MERGED
     | KEEP_INJECTED_CELL
     | USER_CELL
@@ -637,7 +636,7 @@ drcMaxVertex
     ;
 
 drcSummary
-    : DRC_SUMMARY LPAREN (ID | STRING) (OVERWRITE | APPEND)? BY_CELL? RPAREN
+    : DRC_SUMMARY LPAREN name (OVERWRITE | APPEND)? BY_CELL? RPAREN
     ;
 
 guiPriority
@@ -648,7 +647,7 @@ drcRuleMap
     : DRC_RULE_MAP LPAREN
         layerRef
         drcRuleMapFormat?
-        (ID | STRING)?
+        name?
         drcRuleMapOption*
       RPAREN
     ;
@@ -659,28 +658,28 @@ drcRuleMapFormat
     ;
 
 drcRuleMapOption
-    : WITH_PREFIX (ID | STRING)
-    | WITH_INJECTED_PREFIX (ID | STRING)
-    | WITH_APPEND (ID | STRING)
+    : WITH_PREFIX name
+    | WITH_INJECTED_PREFIX name
+    | WITH_APPEND name
     | MAX_RESULT (expr | ALL)
     | MAX_VERTEX (expr | ALL)
-    | ADD_TEXT (ID | STRING)
+    | ADD_TEXT name
     | MERGED
     | KEEP_INJECTED_CELL
     | USER_CELL
     | TOP_CELL
     | DB_PRECISION expr
     | DB_MAGNIFY expr
-    | INJECT_ARRAY (ID | STRING) expr expr expr?
+    | INJECT_ARRAY name expr expr expr?
         (BY_POLYGON expr+)?
-    | AUTO_INJECT_ARRAY (ID | STRING)?
+    | AUTO_INJECT_ARRAY name?
     ;
 
 // ============================================================
 // 28. ERC_RESULT, ERC_MAX_RESULT, ERC_SUMMARY, ERC_OUTPUT_CELL_NAME
 // ============================================================
 ercResultDb
-    : ERC_RESULT LPAREN DB (ID | STRING) (TEXT_FORMAT)? (KEEP_INJECTED_CELL)? RPAREN
+    : ERC_RESULT LPAREN DB name (TEXT_FORMAT)? (KEEP_INJECTED_CELL)? RPAREN
     ;
 
 ercMaxResult
@@ -688,7 +687,7 @@ ercMaxResult
     ;
 
 ercSummary
-    : ERC_SUMMARY LPAREN (ID | STRING) (OVERWRITE | APPEND)? HIER? RPAREN
+    : ERC_SUMMARY LPAREN name (OVERWRITE | APPEND)? HIER? RPAREN
     ;
 
 ercOutputCellName
@@ -706,6 +705,7 @@ ercOutputCellNameOption
 // 29. Shared sub-rules
 // ============================================================
 op_layer : op_statement | layerRef | LPAREN op_layer RPAREN | LBRACK op_layer RBRACK ;
+name : ID | STRING ;
 layerRef : ID | INT_LIT | STRING | EDGE ;
 formatType : GDSII | OASIS | SPICE | OA ;
 constraint : (cmpOp expr)+ ;
@@ -732,7 +732,5 @@ cmpOp : LT | GT | LE | GE | EQ | NE ;
 // GROUP_RULE
 // ============================================================
 groupRule
-    : GROUP_RULE LPAREN (ID | STRING) ruleCheckName+ RPAREN
+    : GROUP_RULE LPAREN name name+ RPAREN
     ;
-
-ruleCheckName : ID | STRING ;

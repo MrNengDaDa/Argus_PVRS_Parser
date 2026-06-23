@@ -40,7 +40,7 @@ class _ContainerBoundCollector(PVRSParserVisitor):
         found_def = None
         while node:
             if isinstance(node, _PVRSParser.Rule_statementContext):
-                rn = node.ruleName()
+                rn = node.name()
                 return rn.getText() if rn else None
             if isinstance(node, _PVRSParser.Derived_layer_defContext):
                 if found_def is None:
@@ -132,7 +132,7 @@ class _ContainerBoundCollector(PVRSParserVisitor):
     # ---- 记录容器边界 ----
 
     def visitRule_statement(self, ctx):
-        name = ctx.ruleName().getText() if ctx.ruleName() else ''
+        name = ctx.name().getText() if ctx.name() else ''
         if name and ctx.start is not None:
             self.containers.append({
                 'name': name, 'kind': 'RULE',
