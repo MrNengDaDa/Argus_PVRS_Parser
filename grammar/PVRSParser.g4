@@ -592,7 +592,11 @@ varStmt
     ;
 
 defineFun
-    : DEFINE_FUN ID ID* LBRACE (derived_layer_def | op_statement)* RBRACE
+    : DEFINE_FUN ID ID* LBRACE defineFunBody RBRACE
+    ;
+
+defineFunBody
+    : (~RBRACE)*
     ;
 
 callFun
