@@ -40,7 +40,7 @@ def main():
             name = sys.argv[idx + 1]
             print(f'\n========== {name} ==========')
             print(te.annotated_text(name)[0])
-            print(te.annotated_legend(name))
+            print(te.format_legend(te.annotated_legend(name)))
 
     if '--sample' in sys.argv:
         names = te.container_names
@@ -59,7 +59,7 @@ def main():
         print(f'\n[示例3] 标注视图:')
         text, _, legend = plugin.show(c)
         print(text)
-        print(legend)
+        print(TokenEditor.format_legend(legend))
         result = plugin.save(backup=False)
         status = "成功" if result["ok"] else f"失败 — {result['errors']}"
         print(f'\n[保存] {status}')

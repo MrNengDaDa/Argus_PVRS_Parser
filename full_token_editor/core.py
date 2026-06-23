@@ -208,17 +208,34 @@ class TokenEditor:
 
         return (''.join(annotated_parts), segments)
 
-    def annotated_legend(self, container: str) -> str:
+    def annotated_legend(self, container: str) -> dict:
+        """
+        返回标注视图的编号说明表，以 dict 形式。
+
+        返回
+        ----
+        {index: [type_name, text, modified: bool, line: int], ...}
+        其中 index 为标注视图中的 <<N>> 编号。
+        """
         ts = self.tokens(container)
-        if not ts:
+        return {
+            t.index: [t.type_name, t.text, t.modified, t.line]
+            for t in ts
+        }
+
+    @staticmethod
+    def format_legend(legend: dict) -> str:
+        """将 annotated_legend() 返回的 dict 格式化为可读字符串。"""
+        if not legend:
             return ''
-        max_type = max(len(t.type_name) for t in ts)
-        lines = [f'--- Token 编号说明（{len(ts)} 个）---']
-        for t in ts:
-            m = ' [已修改]' if t.modified else ''
+        max_type = max(len(v[0]) for v in legend.values())
+        lines = [f'--- Token 编号说明（{len(legend)} 个）---']
+        for idx in sorted(legend):
+            type_name, text, modified, line = legend[idx]
+            m = ' [已修改]' if modified else ''
             lines.append(
-                f'  <<{t.index}>> {t.type_name:<{max_type}}  '
-                f'{t.text!r}{m}  (第 {t.line} 行)'
+                f'  <<{idx}>> {type_name:<{max_type}}  '
+                f'{text!r}{m}  (第 {line} 行)'
             )
         return '\n'.join(lines)
 

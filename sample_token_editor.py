@@ -126,10 +126,11 @@ def demo(filepath: str):
 
     if rule_name:
         print(f"\n   容器: {rule_name}\n")
-        text, _ = te.annotated_text(rule_name)
+        text, tmp = te.annotated_text(rule_name)
         print(text)
+        print(f"\n   段列表: {tmp}")
         _show_var_fun_info(te, rule_name)
-        print(f"\n{te.annotated_legend(rule_name)}")
+        print(f"\n{TokenEditor.format_legend(te.annotated_legend(rule_name))}")
 
     # ================================================================
     # 5. 修改元素
@@ -169,7 +170,7 @@ def demo(filepath: str):
     if rule_name:
         print(f"\n   (已修改的元素显示新值)\n")
         print(te.annotated_text(rule_name)[0])
-        print(f"\n{te.annotated_legend(rule_name)}")
+        print(f"\n{TokenEditor.format_legend(te.annotated_legend(rule_name))}")
 
     pending = te.pending_tokens()
     print(f"\n   暂存修改: {len(pending)} 项")
