@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.join(_PROJECT_DIR, 'grammar', 'gen'))
 
 from antlr4.error.ErrorListener import ErrorListener
 from PVRSLexer import PVRSLexer
+from PVRSLexer import PVRSLexer
 from PVRSParser import PVRSParser as _PVRSParser
 from PVRSParserVisitor import PVRSParserVisitor
 from .elements import TokenElement, _token_type_name
@@ -31,6 +32,8 @@ class _ContainerBoundCollector(PVRSParserVisitor):
         self.source = source
         self.containers: List[Dict[str, Any]] = []
         self.elements: List[TokenElement] = []
+        self.var_map: Dict[str, str] = {}     # {VAR_NAME: full varStmt text}
+        self.fun_map: Dict[str, str] = {}     # {FUN_NAME: full defineFun text}
 
     # ---- 辅助 ----
 
@@ -128,6 +131,45 @@ class _ContainerBoundCollector(PVRSParserVisitor):
             return (self.source[node.start.start:node.stop.stop + 1],
                     node.start.start, node.stop.stop, node.start.line)
         return (None, 0, 0, 0)
+
+    # ---- 收集 varStmt / defineFun 定义 ----
+
+    def _first_id_text(self, ctx) -> Optional[str]:
+        """从 ctx 的直接子节点中提取第一个标识符的文本。
+        支持：raw ID token、NameContext（name 规则）、STRING token。"""
+        from antlr4.tree.Tree import TerminalNodeImpl
+        if not hasattr(ctx, 'children') or not ctx.children:
+            return None
+        for c in ctx.children:
+            if c is None:
+                continue
+            if isinstance(c, TerminalNodeImpl):
+                if c.symbol.type in (PVRSLexer.ID, PVRSLexer.STRING):
+                    return c.symbol.text
+            elif hasattr(c, 'getText'):
+                # NameContext 等规则节点
+                txt = c.getText()
+                if txt and txt not in ('var', 'define_fun', 'call_fun', '(', ')', '{', '}'):
+                    return txt
+        return None
+
+    def visitVarStmt(self, ctx):
+        """记录 var(NAME ...) 完整文本，key 为变量名。"""
+        if ctx.start and ctx.stop:
+            key = self._first_id_text(ctx)
+            if key and key not in self.var_map:
+                self.var_map[key] = self.source[ctx.start.start:ctx.stop.stop + 1]
+        self.visitChildren(ctx)
+        return None
+
+    def visitDefineFun(self, ctx):
+        """记录 define_fun NAME ... { ... } 完整文本，key 为函数名。"""
+        if ctx.start and ctx.stop:
+            key = self._first_id_text(ctx)
+            if key and key not in self.fun_map:
+                self.fun_map[key] = self.source[ctx.start.start:ctx.stop.stop + 1]
+        self.visitChildren(ctx)
+        return None
 
     # ---- 记录容器边界 ----
 

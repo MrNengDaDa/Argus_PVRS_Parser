@@ -52,6 +52,8 @@ class TokenEditor:
         collector = _ContainerBoundCollector(self.source)
         collector.visit(self._tree)
         self._containers = collector.containers
+        self.var_map: Dict[str, str] = collector.var_map
+        self.fun_map: Dict[str, str] = collector.fun_map
 
         self._tokens: List[TokenElement] = collector.elements
         self._container_tokens: Dict[str, List[TokenElement]] = {}
