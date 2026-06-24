@@ -16,7 +16,7 @@ te = TokenEditor("rules.pvrs")
 
 # 查看元素
 for c in te.container_names:
-    print(te.annotated_text(c))
+    print(te.annotated_text(c)[0])
 
 # 修改
 te.replace_by_text("chk1", "M1", "METAL1")
@@ -125,7 +125,7 @@ else:
 
 #### 3. `annotated_text(container)`
 
-**功能**：返回带 `<<N:value>>` 标注的容器原文。每个可修改元素被包裹显示，已修改元素显示新值。括号 `()`、`[]` 不会出现在标注中。
+**功能**：返回带 `<<N:value>>` 标注的容器原文和结构化段列表。每个可修改元素被包裹显示，已修改元素显示新值。括号 `()`、`[]` 不会出现在标注中。
 
 **输入**
 
@@ -133,13 +133,15 @@ else:
 |------|------|------|
 | `container` | `str` | 容器名（RULE 名或赋值语句左侧变量名） |
 
-**输出**：`str` — 标注后的文本。
+**输出**：`(annotated_str, segments)` — `annotated_str` 为标注后的文本；`segments` 是 `[[text, index_or_False], ...]`，其中 `index_or_False` 为元素编号或 `False`（不可修改的文本段）。
 
 **使用样例**
 
 ```python
-text = te.annotated_text("chk1")
-print(text)
+text, segs = te.annotated_text("chk1")
+print(text)          # 标注后的显示文本
+for s in segs:       # s = [segment_text, index_or_False]
+    print(s)
 ```
 
 输出示例：
@@ -548,10 +550,11 @@ print(TokenEditor.format_legend(legend))
 
 | 元素类型 | 示例 | 说明 |
 |---------|------|------|
-| 操作关键字 | `WIDTH`, `GEOM_OR` | 操作名 |
+| 操作关键字 | `WIDTH`, `GEOM_OR`, `CALL_FUN` | 操作名 / 函数调用 |
 | Op_layer | `M1`, `L1` | 层引用或嵌套操作 |
 | Constraint | `< 0.5` | 约束表达式 |
 | IntOption | `adjacent < 90`, `region` | 选项参数组 |
+| Name / Atom | `LAYER1`, `5` | 标识符 / 字面量（var、call_fun 参数） |
 | layerRef | `L1` (赋值左侧) | derived_layer_def 的左侧变量 |
 
 括号 `(` `)` `[` `]` 不可修改，标注视图中保持为普通文本。
