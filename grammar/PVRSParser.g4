@@ -587,7 +587,7 @@ lvsGround
     ;
 
 varStmt
-    : VAR LPAREN name (name | SUB? atom)+ RPAREN
+    : VAR LPAREN name (name | expr)+ RPAREN
     ;
 
 defineFun
@@ -599,7 +599,7 @@ defineFunBody
     ;
 
 callFun
-    : CALL_FUN LPAREN name (name | SUB? atom)* RPAREN
+    : CALL_FUN LPAREN name (name | expr)* RPAREN
     ;
 
 // ============================================================
