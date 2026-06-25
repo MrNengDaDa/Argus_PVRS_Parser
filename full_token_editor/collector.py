@@ -253,13 +253,33 @@ class _TargetedCollector(_ContainerBoundCollector):
         super().__init__(source)
         self._collect_nodes = collect_nodes
 
+    def visitDerived_layer_def(self, ctx):
+        """不收集 layerRef 元素，仅处理外部 DEF 容器边界并递归子节点。"""
+        lr = ctx.layerRef()
+        node = ctx.parentCtx
+        inside_rule = False
+        while node:
+            if isinstance(node, _PVRSParser.Rule_statementContext):
+                inside_rule = True
+                break
+            node = node.parentCtx
+        if not inside_rule and lr and lr.start and ctx.start:
+            name = self.source[lr.start.start:lr.stop.stop + 1]
+            self.containers.append({
+                'name': name, 'kind': 'DEF',
+                'char_start': ctx.start.start,
+                'char_stop': ctx.stop.stop if ctx.stop else ctx.start.stop,
+                'line': ctx.start.line,
+            })
+        self.visitChildren(ctx)
+        return None
+
     def visitOp_statement(self, ctx):
         container = self._container_name(ctx)
         if not container:
             self.visitChildren(ctx)
             return None
 
-#T op: mode={\"leaf\" if self._collect_nodes==\"leaf\" else \"targets\"} container={container!r}', file=sys.stderr)
         if self._collect_nodes == 'leaf':
             self._walk_leaves(ctx, container)
         else:
