@@ -8,9 +8,9 @@ _PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_PROJECT_DIR, 'grammar', 'gen'))
 
 from antlr4 import InputStream, CommonTokenStream
-from PVRSLexer import PVRSLexer
-from PVRSParser import PVRSParser as _PVRSParser
-from .collector import _ContainerBoundCollector, _ErrorCollector
+from grammar.gen.PVRSLexer import PVRSLexer
+from grammar.gen.PVRSParser import PVRSParser as _PVRSParser
+from .collector import _ContainerBoundCollector, _TargetedCollector, _ErrorCollector
 from .elements import TokenElement
 
 
@@ -26,8 +26,15 @@ class TokenEditor:
     支持按编号或文本修改，修改后自动生成标注视图。
     """
 
-    def __init__(self, filepath: str):
+    def __init__(self, filepath: str, collect_nodes=None):
+        """
+        collect_nodes:
+            None        — op_statement 直接子节点（默认）
+            'leaf'      — 所有叶子 token
+            [Context, ...] — 收集匹配的语法节点类型列表
+        """
         self.filepath = filepath
+        self._collect_nodes = collect_nodes
         with open(filepath, 'r', encoding='utf-8', errors='replace', newline='') as f:
             raw = f.read()
 
@@ -49,8 +56,12 @@ class TokenEditor:
         self._parse_errors = err.errors
 
         # 收集
-        collector = _ContainerBoundCollector(self.source)
+        if collect_nodes is None:
+            collector = _ContainerBoundCollector(self.source)
+        else:
+            collector = _TargetedCollector(self.source, collect_nodes)
         collector.visit(self._tree)
+        # debug print removed
         self._containers = collector.containers
         self.var_map: Dict[str, str] = collector.var_map
         self.fun_map: Dict[str, str] = collector.fun_map
