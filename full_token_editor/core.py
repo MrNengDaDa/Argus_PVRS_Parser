@@ -1,6 +1,6 @@
 """TokenEditor — 主编辑器。"""
 
-import sys, os
+import re, sys, os
 from typing import List, Dict, Any
 from datetime import datetime
 
@@ -120,19 +120,21 @@ class TokenEditor:
         return ''
 
     def var_refs(self, container: str) -> Dict[str, str]:
-        """返回该容器内引用的所有 VAR 定义 {var_name: var_full_text}。"""
+        """返回该容器内引用的所有 VAR 定义。扫描容器原文匹配 var_map。"""
         result = {}
-        for t in self.tokens(container):
-            if t.text in self.var_map and t.text not in result:
-                result[t.text] = self.var_map[t.text]
+        text = self.container_text(container)
+        for name, full in self.var_map.items():
+            if re.search(r'\b' + re.escape(name) + r'\b', text, re.IGNORECASE):
+                result[name] = full
         return result
 
     def fun_refs(self, container: str) -> Dict[str, str]:
-        """返回该容器内引用的所有 CALL_FUN 定义 {fun_name: fun_full_text}。"""
+        """返回该容器内引用的所有 CALL_FUN 定义。扫描容器原文匹配 fun_map。"""
         result = {}
-        for t in self.tokens(container):
-            if t.text in self.fun_map and t.text not in result:
-                result[t.text] = self.fun_map[t.text]
+        text = self.container_text(container)
+        for name, full in self.fun_map.items():
+            if re.search(r'\b' + re.escape(name) + r'\b', text, re.IGNORECASE):
+                result[name] = full
         return result
 
     # ---- 修改 ----
