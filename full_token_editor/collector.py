@@ -7,10 +7,10 @@ _PROJECT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_PROJECT_DIR, 'grammar', 'gen'))
 
 from antlr4.error.ErrorListener import ErrorListener
-from PVRSLexer import PVRSLexer
-from PVRSLexer import PVRSLexer
-from PVRSParser import PVRSParser as _PVRSParser
-from PVRSParserVisitor import PVRSParserVisitor
+from grammar.gen.PVRSLexer import PVRSLexer
+from grammar.gen.PVRSLexer import PVRSLexer
+from grammar.gen.PVRSParser import PVRSParser as _PVRSParser
+from grammar.gen.PVRSParserVisitor import PVRSParserVisitor
 from .elements import TokenElement, _token_type_name
 
 
@@ -32,8 +32,8 @@ class _ContainerBoundCollector(PVRSParserVisitor):
         self.source = source
         self.containers: List[Dict[str, Any]] = []
         self.elements: List[TokenElement] = []
-        self.var_map: Dict[str, str] = {}     # {VAR_NAME: full varStmt text}
-        self.fun_map: Dict[str, str] = {}     # {FUN_NAME: full defineFun text}
+        self.var_map: Dict[str, str] = {}
+        self.fun_map: Dict[str, str] = {}
 
     # ---- 辅助 ----
 
@@ -73,18 +73,16 @@ class _ContainerBoundCollector(PVRSParserVisitor):
             self.visitChildren(ctx)
             return None
 
+        from antlr4.tree.Tree import TerminalNodeImpl
         for op_child in (ctx.children or []):
             if op_child is None:
                 continue
-            from antlr4.tree.Tree import TerminalNodeImpl
             if isinstance(op_child, TerminalNodeImpl):
                 continue
             if not hasattr(op_child, 'children') or op_child.children is None:
                 continue
-            cls_name = type(op_child).__name__
-            if cls_name == 'Op_statementContext':
+            if type(op_child).__name__ == 'Op_statementContext':
                 continue
-
             for gc in op_child.children:
                 if gc is None:
                     continue
@@ -93,16 +91,19 @@ class _ContainerBoundCollector(PVRSParserVisitor):
                 text, cstart, cstop, line = self._node_span(gc)
                 if text is None:
                     continue
-                idx = len(self.elements) + 1
-                self.elements.append(TokenElement(
-                    token=None, container=container, idx=idx,
-                    source=self.source,
-                    _text=text, _type=self._context_type_name(gc),
-                    _start=cstart, _stop=cstop, _line=line,
-                ))
+                self._add_token(container, text,
+                    self._context_type_name(gc), cstart, cstop, line)
 
         self.visitChildren(ctx)
         return None
+
+    def _add_token(self, container, text, type_name, start, stop, line):
+        idx = len(self.elements) + 1
+        self.elements.append(TokenElement(
+            token=None, container=container, idx=idx,
+            source=self.source, _text=text, _type=type_name,
+            _start=start, _stop=stop, _line=line,
+        ))
 
     def _is_bracket(self, node) -> bool:
         from antlr4.Token import CommonToken
@@ -230,3 +231,80 @@ class _ErrorCollector(ErrorListener):
         self.errors = []
     def syntaxError(self, r, sym, line, col, msg, e):
         self.errors.append((line, col, msg))
+
+
+# ============================================================
+# 目标收集器（leaf / 指定 context 类型）
+# ============================================================
+
+class _TargetedCollector(_ContainerBoundCollector):
+    """
+    基于 _ContainerBoundCollector，覆盖 visitOp_statement 以支持
+    两种自定义收集模式，其余容器逻辑全部复用基类。
+
+    初始化参数
+    ----------
+    collect_nodes:
+        'leaf'             — 所有叶子 TerminalNode
+        [Context, ...]     — 只收集匹配的语法节点
+    """
+
+    def __init__(self, source: str, collect_nodes):
+        super().__init__(source)
+        self._collect_nodes = collect_nodes
+
+    def visitOp_statement(self, ctx):
+        container = self._container_name(ctx)
+        if not container:
+            self.visitChildren(ctx)
+            return None
+
+#T op: mode={\"leaf\" if self._collect_nodes==\"leaf\" else \"targets\"} container={container!r}', file=sys.stderr)
+        if self._collect_nodes == 'leaf':
+            self._walk_leaves(ctx, container)
+        else:
+            self._walk_targets(ctx, container)
+
+        self.visitChildren(ctx)
+        return None
+
+    def _walk_leaves(self, ctx, container):
+        """递归到所有 TerminalNode，跳过括号。"""
+        from antlr4.tree.Tree import TerminalNodeImpl
+
+        def walk(node):
+            if isinstance(node, TerminalNodeImpl):
+                if not self._is_bracket(node):
+                    t = node.symbol
+                    self._add_token(container, t.text or '',
+                                    self._context_type_name(node),
+                                    t.start, t.stop, t.line)
+            elif hasattr(node, 'children') and node.children:
+                for c in node.children:
+                    if c is not None:
+                        walk(c)
+
+        for op_child in (ctx.children or []):
+            if op_child is not None:
+                walk(op_child)
+
+    def _walk_targets(self, ctx, container):
+        """递归到匹配 _collect_nodes 的节点即停止收集。"""
+        targets = tuple(self._collect_nodes)
+        from antlr4.tree.Tree import TerminalNodeImpl
+        def walk(node):
+            if node is None or isinstance(node, TerminalNodeImpl):
+                return
+            if isinstance(node, targets):
+                text, cstart, cstop, line = self._node_span(node)
+                if text is not None:
+                    self._add_token(container, text,
+                                    self._context_type_name(node),
+                                    cstart, cstop, line)
+                return
+            if hasattr(node, 'children') and node.children:
+                for c in node.children:
+                    walk(c)
+
+        for op_child in (ctx.children or []):
+            walk(op_child)
