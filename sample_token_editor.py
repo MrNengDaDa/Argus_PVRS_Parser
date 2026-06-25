@@ -71,6 +71,8 @@ def demo(filepath: str):
     print("1. 打开文件")
     print("=" * 60)
     te = TokenEditor(filepath)
+    from grammar.gen.PVRSParser import PVRSParser
+    te = TokenEditor(filepath,collect_nodes=[PVRSParser.ExprContext])
     print(f"   文件: {filepath}")
 
     # 显示全局 VAR/FUN 定义
