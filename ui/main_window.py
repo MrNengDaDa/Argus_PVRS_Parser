@@ -58,6 +58,15 @@ class MainWindow(QMainWindow):
         self._act_reload.triggered.connect(self._on_reload)
         tb.addAction(self._act_reload)
 
+        tb.addSeparator()
+
+        self._act_mode = QAction("📐 Expr模式", self)
+        self._act_mode.setCheckable(True)
+        self._act_mode.triggered.connect(self._on_toggle_mode)
+        tb.addAction(self._act_mode)
+
+        self._expr_mode = False
+
     # ---- 主布局 ----
 
     def _setup_ui(self):
@@ -106,7 +115,12 @@ class MainWindow(QMainWindow):
     def _load_file(self, filepath):
         try:
             from full_token_editor import TokenEditor
-            self._editor = TokenEditor(filepath)
+            if self._expr_mode:
+                from grammar.gen.PVRSParser import PVRSParser as P
+                self._editor = TokenEditor(filepath,
+                    collect_nodes=[P.ExprContext])
+            else:
+                self._editor = TokenEditor(filepath)
         except Exception as e:
             QMessageBox.critical(self, "解析错误", f"无法解析文件:\n{e}")
             return
@@ -178,6 +192,12 @@ class MainWindow(QMainWindow):
             self._detail_panel.show_container(self._editor, name)
         self._container_list.refresh_modification_markers(self._editor)
         self._update_statusbar()
+
+    def _on_toggle_mode(self):
+        self._expr_mode = self._act_mode.isChecked()
+        self._act_mode.setText("📐 默认模式" if not self._expr_mode else "📐 Expr模式")
+        if self._filepath:
+            self._load_file(self._filepath)
 
     def _on_reload(self):
         """刷新当前容器视图。"""
