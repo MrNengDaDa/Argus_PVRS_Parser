@@ -290,12 +290,23 @@ class _TargetedCollector(_ContainerBoundCollector):
 
     def _walk_targets(self, ctx, container):
         """递归到匹配 _collect_nodes 的节点即停止收集。"""
-        targets = tuple(self._collect_nodes)
+        ctx_targets = tuple(
+            t for t in self._collect_nodes if isinstance(t, type))
+        token_targets = set(
+            t for t in self._collect_nodes if isinstance(t, int))
         from antlr4.tree.Tree import TerminalNodeImpl
         def walk(node):
-            if node is None or isinstance(node, TerminalNodeImpl):
+            if node is None:
                 return
-            if isinstance(node, targets):
+            if isinstance(node, TerminalNodeImpl):
+                if token_targets and node.symbol.type in token_targets:
+                    if not self._is_bracket(node):
+                        t = node.symbol
+                        self._add_token(container, t.text or '',
+                                        self._context_type_name(node),
+                                        t.start, t.stop, t.line)
+                return
+            if ctx_targets and isinstance(node, ctx_targets):
                 text, cstart, cstop, line = self._node_span(node)
                 if text is not None:
                     self._add_token(container, text,
