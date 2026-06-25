@@ -60,15 +60,24 @@ full-token-editor rules.pvrs --sample
 
 ---
 
-#### 1. `TokenEditor(filepath)`
+#### 1. `TokenEditor(filepath, collect_nodes=None)`
 
-**功能**：解析 PVRS 规则文件，收集所有 RULE 和 derived_layer_def 容器内 op_statement 的直接子节点。
+**功能**：解析 PVRS 规则文件，收集 RULE 和 derived_layer_def 容器内的可修改元素。
+
+`collect_nodes` 控制收集粒度：
+
+| 值 | 说明 |
+|----|------|
+| `None`（默认） | op_statement 直接子节点（操作名、层引用、约束、选项等） |
+| `'leaf'` | 所有叶子 token（每个关键字、标识符、数值、运算符） |
+| `[Context, ...]` | 只收集匹配的上下文节点或 token 类型 |
 
 **输入**
 
 | 参数 | 类型 | 说明 |
 |------|------|------|
 | `filepath` | `str` | PVRS 规则文件路径 |
+| `collect_nodes` | `None` / `'leaf'` / `list` | 收集模式，默认 `None` |
 
 **输出**：`TokenEditor` 实例。
 
@@ -76,9 +85,25 @@ full-token-editor rules.pvrs --sample
 
 ```python
 from full_token_editor import TokenEditor
+from grammar.gen.PVRSParser import PVRSParser as P
+from grammar.gen.PVRSLexer import PVRSLexer
 
+# 默认模式：op_statement 直接子节点
 te = TokenEditor("rules.pvrs")
-print(te.container_names)  # 查看所有容器名
+
+# 所有叶子 token
+te = TokenEditor("rules.pvrs", collect_nodes='leaf')
+
+# 只收集表达式上下文
+te = TokenEditor("rules.pvrs", collect_nodes=[P.ExprContext])
+
+# 只收集数值 token（FLOAT + INT_LIT）
+te = TokenEditor("rules.pvrs",
+    collect_nodes=[PVRSLexer.FLOAT, PVRSLexer.INT_LIT])
+
+# 混合：context 类 + token type
+te = TokenEditor("rules.pvrs",
+    collect_nodes=[P.ConstraintContext, PVRSLexer.FLOAT])
 ```
 
 ---
