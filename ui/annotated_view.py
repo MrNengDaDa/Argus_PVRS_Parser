@@ -110,29 +110,36 @@ class AnnotatedTextView(QWidget):
                 self._flow_layout.addLayout(row)
                 line_widgets.clear()
 
-        for seg_text, idx in segs:
-            if '\n' in seg_text:
-                parts = seg_text.split('\n')
-                for i, part in enumerate(parts):
-                    if i > 0:
-                        flush_line()  # 换行
-                    if idx is not False and i == 0:
-                        # token 在第一段
-                        flush_label()
-                        line_widgets.append(self._make_edit(idx, part, legend))
-                    elif idx is not False:
-                        # token 在后面的段（不太会发生）
-                        flush_label()
-                        line_widgets.append(self._make_edit(idx, part, legend))
-                    else:
-                        current_text += part
-            elif idx is not False:
-                flush_label()
-                line_widgets.append(self._make_edit(idx, seg_text, legend))
-            else:
-                current_text += seg_text
+        if not segs:
+            # 没有可修改元素：整个容器文本作为只读标签显示
+            lbl = QLabel(text)
+            lbl.setFont(self._font)
+            lbl.setStyleSheet("color: #555; padding: 4px;")
+            lbl.setWordWrap(True)
+            lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+            self._flow_layout.addWidget(lbl)
+        else:
+            for seg_text, idx in segs:
+                if '\n' in seg_text:
+                    parts = seg_text.split('\n')
+                    for i, part in enumerate(parts):
+                        if i > 0:
+                            flush_line()
+                        if idx is not False and i == 0:
+                            flush_label()
+                            line_widgets.append(self._make_edit(idx, part, legend))
+                        elif idx is not False:
+                            flush_label()
+                            line_widgets.append(self._make_edit(idx, part, legend))
+                        else:
+                            current_text += part
+                elif idx is not False:
+                    flush_label()
+                    line_widgets.append(self._make_edit(idx, seg_text, legend))
+                else:
+                    current_text += seg_text
+            flush_line()
 
-        flush_line()
         self._flow_layout.addStretch()
 
     def _make_edit(self, idx, text, legend):
