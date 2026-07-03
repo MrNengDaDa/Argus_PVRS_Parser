@@ -26,15 +26,19 @@ class TokenEditor:
     支持按编号或文本修改，修改后自动生成标注视图。
     """
 
-    def __init__(self, filepath: str, collect_nodes=None):
+    def __init__(self, filepath: str, collect_nodes=None, filter_nodes=None):
         """
         collect_nodes:
             None        — op_statement 直接子节点（默认）
             'leaf'      — 所有叶子 token
             [Context, ...] — 收集匹配的语法节点类型列表
+        filter_nodes:
+            None        — 不过滤
+            [Context|token, ...] — 收集这些节点的文本到 filter_text_set，不影响 elements
         """
         self.filepath = filepath
         self._collect_nodes = collect_nodes
+        self._filter_nodes = filter_nodes
         with open(filepath, 'r', encoding='utf-8', errors='replace', newline='') as f:
             raw = f.read()
 
@@ -56,15 +60,15 @@ class TokenEditor:
         self._parse_errors = err.errors
 
         # 收集
-        if collect_nodes is None:
+        if collect_nodes is None and filter_nodes is None:
             collector = _ContainerBoundCollector(self.source)
         else:
-            collector = _TargetedCollector(self.source, collect_nodes)
+            collector = _TargetedCollector(self.source, collect_nodes, filter_nodes)
         collector.visit(self._tree)
-        # debug print removed
         self._containers = collector.containers
         self.var_map: Dict[str, str] = collector.var_map
         self.fun_map: Dict[str, str] = collector.fun_map
+        self.filter_text_set: Dict[str, set] = getattr(collector, 'filter_text_set', {})
 
         self._tokens: List[TokenElement] = collector.elements
         self._container_tokens: Dict[str, List[TokenElement]] = {}
@@ -156,6 +160,17 @@ class TokenEditor:
             return False
         ts[index - 1]._new_text = new_text
         return True
+
+    def filter_by_text(self, text: str):
+        """只保留 filter_text_set 中包含指定文本的容器。"""
+        if not self.filter_text_set:
+            return
+        matching = {c for c, ts in self.filter_text_set.items() if text in ts}
+        self._tokens = [t for t in self._tokens if t.container in matching]
+        self._containers = [c for c in self._containers if c['name'] in matching]
+        self._container_tokens = {
+            k: v for k, v in self._container_tokens.items() if k in matching
+        }
 
     def pending_tokens(self) -> List[TokenElement]:
         return [t for t in self._tokens if t.modified]

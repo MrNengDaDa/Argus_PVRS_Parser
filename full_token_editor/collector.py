@@ -249,9 +249,11 @@ class _TargetedCollector(_ContainerBoundCollector):
         [Context, ...]     — 只收集匹配的语法节点
     """
 
-    def __init__(self, source: str, collect_nodes):
+    def __init__(self, source: str, collect_nodes, filter_nodes=None):
         super().__init__(source)
         self._collect_nodes = collect_nodes
+        self._filter_nodes = filter_nodes
+        self.filter_text_set: Dict[str, set] = {}  # {container: {text, ...}}
 
     def visitDerived_layer_def(self, ctx):
         """不收集 layerRef 元素，仅处理外部 DEF 容器边界并递归子节点。"""
@@ -285,6 +287,9 @@ class _TargetedCollector(_ContainerBoundCollector):
         else:
             self._walk_targets(ctx, container)
 
+        if self._filter_nodes is not None:
+            self._walk_filter(ctx, container)
+
         self.visitChildren(ctx)
         return None
 
@@ -310,6 +315,8 @@ class _TargetedCollector(_ContainerBoundCollector):
 
     def _walk_targets(self, ctx, container):
         """递归到匹配 _collect_nodes 的节点即停止收集。"""
+        if self._collect_nodes is None:
+            return
         ctx_targets = tuple(
             t for t in self._collect_nodes if isinstance(t, type))
         token_targets = set(
@@ -339,3 +346,35 @@ class _TargetedCollector(_ContainerBoundCollector):
 
         for op_child in (ctx.children or []):
             walk(op_child)
+
+    def _walk_filter(self, ctx, container):
+        """只收集文本，不创建 TokenElement。匹配后继续递归子节点。"""
+        if self._filter_nodes is None:
+            return
+        ctx_targets = tuple(
+            t for t in self._filter_nodes if isinstance(t, type))
+        token_targets = set(
+            t for t in self._filter_nodes if isinstance(t, int))
+        from antlr4.tree.Tree import TerminalNodeImpl
+
+        def walk(node):
+            if node is None:
+                return
+            if isinstance(node, TerminalNodeImpl):
+                if token_targets and node.symbol.type in token_targets:
+                    self.filter_text_set.setdefault(container, set()).add(
+                        node.symbol.text or '')
+                # 叶子节点，继续递归也没用
+                return
+            if ctx_targets and isinstance(node, ctx_targets):
+                text = node.getText() if hasattr(node, 'getText') else ''
+                if text:
+                    self.filter_text_set.setdefault(container, set()).add(text)
+                # continue recursing into children (no early return)
+            if hasattr(node, 'children') and node.children:
+                for c in node.children:
+                    walk(c)
+
+        for op_child in (ctx.children or []):
+            walk(op_child)
+
