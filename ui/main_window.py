@@ -157,10 +157,8 @@ class MainWindow(QMainWindow):
         result = self._editor.save()
         if result['ok']:
             QMessageBox.information(self, "保存", "保存成功。")
-            # 重新加载文件以获取保存后的干净状态
-            from full_token_editor import TokenEditor
-            self._editor = TokenEditor(self._filepath)
-            self._container_list.populate(self._editor)
+            # 重新加载文件（保持当前模式）
+            self._load_file(self._filepath)
             # 恢复当前选中的容器
             name = self._container_list.current_name()
             if name and name in self._editor.container_names:
