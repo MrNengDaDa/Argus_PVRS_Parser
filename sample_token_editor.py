@@ -72,7 +72,7 @@ def demo(filepath: str):
     print("=" * 60)
     te = TokenEditor(filepath)
     from grammar.gen.PVRSParser import PVRSParser
-    te = TokenEditor(filepath,collect_nodes=[PVRSParser.ExprContext])
+    te = TokenEditor(filepath,collect_nodes=[PVRSParser.AtomContext,PVRSParser.ExprContext])
     print(f"   文件: {filepath}")
 
     # 显示全局 VAR/FUN 定义

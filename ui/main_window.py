@@ -60,12 +60,12 @@ class MainWindow(QMainWindow):
 
         tb.addSeparator()
 
-        self._act_mode = QAction("📐 Expr模式", self)
+        self._expr_mode = True
+        self._act_mode = QAction("📐 Expr模式" if self._expr_mode else "📐 默认模式", self)
         self._act_mode.setCheckable(True)
+        self._act_mode.setChecked(self._expr_mode)
         self._act_mode.triggered.connect(self._on_toggle_mode)
         tb.addAction(self._act_mode)
-
-        self._expr_mode = False
 
     # ---- 主布局 ----
 

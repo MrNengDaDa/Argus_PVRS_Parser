@@ -48,6 +48,22 @@ pyinstaller --onefile sample_token_editor.py \
     --hidden-import PVRSParserVisitor \
     --add-data "grammar/gen:grammar/gen"
 
+echo "=== Building pvrs-editor (GUI) ==="
+pyinstaller --onefile ui/app.py \
+    --name pvrs-editor \
+    --distpath dist --workpath build \
+    --paths grammar/gen \
+    --collect-submodules full_token_editor \
+    --collect-submodules ui \
+    --hidden-import PVRSLexer \
+    --hidden-import PVRSParser \
+    --hidden-import PVRSParserVisitor \
+    --hidden-import PyQt5 \
+    --hidden-import PyQt5.QtCore \
+    --hidden-import PyQt5.QtGui \
+    --hidden-import PyQt5.QtWidgets \
+    --add-data "grammar/gen:grammar/gen"
+
 echo ""
 echo "=== Build complete ==="
 echo "Executables are in: $SCRIPT_DIR/dist/"
@@ -60,3 +76,4 @@ echo "  ./dist/expand_macros <input> [output]    # Expand DEFINE_FUN/CALL_FUN/VA
 echo "  ./dist/count_keywords <file>             # Count keyword occurrences"
 echo "  ./dist/extract_keyword_lines <file>      # Extract lines containing keywords"
 echo "  ./dist/sample_token_editor [file]         # TokenEditor demo (VAR/FUN display)"
+echo "  ./dist/pvrs-editor                        # GUI editor"
