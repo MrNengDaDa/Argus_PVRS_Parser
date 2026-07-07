@@ -35,7 +35,7 @@ op_statement
     | geomHoles | geomEdgeToRect | geomOrthSize
     | geomSize | geomGetBoundaries | geomArea | geomNot | encRect | geomTransferNetid
     | edgeAngle | edgeLength | edgeInside | edgeCoincident | edgeConvexPoint | edgeAdjacent | edgeOr
-    | dimensionalCheck | encCheck | extensionCheck | widthCheck | overlapCheck
+    | extCheck | spaceCheck | intCheck | encCheck | extensionCheck | widthCheck | overlapCheck
     | checkDensity | copyOp | geomGetBoundary | checkNar
     | dfmBuildProperty | dfmCopy | dfmResult | dfmBuildPropertySelectAssistant | dfmCheckSpace | dfmOrEdge
     | geomNet | geomGetCellBoundary | geomWithAdjacent
@@ -231,10 +231,20 @@ geomXor : (GEOM_XOR | XOR) LPAREN op_layer op_layer CELL_LEVEL? RPAREN
 // 24. Dimensional checks (EXT/SPACE/ENC/EXTENSION/WIDTH/OVERLAP/INT)
 // ============================================================
 
-// EXT/SPACE/INT: one-layer or two-layer
-dimensionalCheck
-    : (EXT | SPACE | INT) LPAREN op_layer op_layer constraint intOption* RPAREN
-    | (EXT | SPACE | INT) LPAREN op_layer constraint intOption* RPAREN ;
+// EXT: one-layer or two-layer
+extCheck
+    : EXT LPAREN op_layer op_layer constraint intOption* RPAREN
+    | EXT LPAREN op_layer constraint intOption* RPAREN ;
+
+// SPACE: one-layer or two-layer
+spaceCheck
+    : SPACE LPAREN op_layer op_layer constraint intOption* RPAREN
+    | SPACE LPAREN op_layer constraint intOption* RPAREN ;
+
+// INT: one-layer or two-layer
+intCheck
+    : INT LPAREN op_layer op_layer constraint intOption* RPAREN
+    | INT LPAREN op_layer constraint intOption* RPAREN ;
 
 // ENC/EXTENSION/OVERLAP: two-layer only
 encCheck
