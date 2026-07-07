@@ -155,11 +155,29 @@ class _ContainerBoundCollector(PVRSParserVisitor):
         return None
 
     def visitVarStmt(self, ctx):
-        """记录 var(NAME ...) 完整文本，key 为变量名。"""
+        """记录 var(NAME ...) 完整文本，注册为 VAR 容器。子元素收集与 op_statement 一致。"""
         if ctx.start and ctx.stop:
             key = self._first_id_text(ctx)
             if key and key not in self.var_map:
                 self.var_map[key] = self.source[ctx.start.start:ctx.stop.stop + 1]
+            if key:
+                self.containers.append({
+                    'name': key, 'kind': 'VAR',
+                    'char_start': ctx.start.start,
+                    'char_stop': ctx.stop.stop if ctx.stop else ctx.start.stop,
+                    'line': ctx.start.line,
+                })
+                # 和 _collect_op_children 一致：遍历子节点，跳过括号
+                from antlr4.tree.Tree import TerminalNodeImpl
+                for gc in (ctx.children or []):
+                    if gc is None:
+                        continue
+                    if isinstance(gc, TerminalNodeImpl):
+                        continue  # 跳过 VAR、LPAREN、RPAREN token
+                    text, cs, ce, line = self._node_span(gc)
+                    if text is not None and text != key:
+                        self._add_token(key, text,
+                            self._context_type_name(gc), cs, ce, line)
         self.visitChildren(ctx)
         return None
 
@@ -276,6 +294,37 @@ class _TargetedCollector(_ContainerBoundCollector):
         self.visitChildren(ctx)
         return None
 
+    def visitVarStmt(self, ctx):
+        """VAR 容器：复用基类容器注册 + var_map 记录，用自定义 walk 收集子元素。"""
+        key = self._first_id_text(ctx) if ctx.start else None
+        if key:
+            if key not in self.var_map:
+                self.var_map[key] = self.source[ctx.start.start:ctx.stop.stop + 1]
+            self.containers.append({
+                'name': key, 'kind': 'VAR',
+                'char_start': ctx.start.start,
+                'char_stop': ctx.stop.stop if ctx.stop else ctx.start.stop,
+                'line': ctx.start.line,
+            })
+        if self._collect_nodes == 'leaf':
+            self._walk_leaves(ctx, key)
+        elif self._collect_nodes is not None:
+            self._walk_targets(ctx, key)
+        else:
+            # 默认模式：和 op_statement 一致，遍历子节点跳过 token
+            from antlr4.tree.Tree import TerminalNodeImpl
+            for gc in (ctx.children or []):
+                if gc is None or isinstance(gc, TerminalNodeImpl):
+                    continue
+                text, cs, ce, line = self._node_span(gc)
+                if text is not None and text != key:
+                    self._add_token(key, text,
+                        self._context_type_name(gc), cs, ce, line)
+        if self._filter_nodes is not None:
+            self._walk_filter(ctx, key)
+        self.visitChildren(ctx)
+        return None
+
     def visitOp_statement(self, ctx):
         container = self._container_name(ctx)
         if not container:
@@ -284,7 +333,7 @@ class _TargetedCollector(_ContainerBoundCollector):
 
         if self._collect_nodes == 'leaf':
             self._walk_leaves(ctx, container)
-        else:
+        elif self._collect_nodes is not None:
             self._walk_targets(ctx, container)
 
         if self._filter_nodes is not None:

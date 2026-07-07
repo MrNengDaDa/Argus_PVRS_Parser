@@ -10,7 +10,7 @@ pvrFile : statement* EOF ;
 // ============================================================
 // 2. Statement types
 // ============================================================
-statement : environment_stmt | derived_layer_def | op_statement | rule_statement | groupRule ;
+statement : environment_stmt | derived_layer_def | op_statement | rule_statement | varStmt | defineFun;
 derived_layer_def : layerRef ASSIGN op_statement ;
 rule_statement : RULE name LBRACE rule_body RBRACE ;
 rule_body : (derived_layer_def | op_statement)*;
@@ -25,8 +25,7 @@ environment_stmt
     | ercResultDb | ercMaxResult | ercSummary | ercOutputCellName
     | lvsPower | lvsGround
     | drcRuleMap
-    | varStmt
-    | defineFun
+    | groupRule
     ;
 
 op_statement
@@ -587,7 +586,7 @@ lvsGround
     ;
 
 varStmt
-    : VAR LPAREN name (name | expr)+ RPAREN
+    : VAR LPAREN name expr+ RPAREN
     ;
 
 defineFun
@@ -599,7 +598,7 @@ defineFunBody
     ;
 
 callFun
-    : CALL_FUN LPAREN name (name | expr)* RPAREN
+    : CALL_FUN LPAREN name expr* RPAREN
     ;
 
 // ============================================================

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""容器列表面板 — 显示所有 RULE / DEF 容器。"""
+"""容器列表面板 — 显示所有 RULE / DEF 容器，支持名称过滤。"""
 
-from PyQt5.QtWidgets import QListWidget, QListWidgetItem, QLabel, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QListWidget, QListWidgetItem, QLabel, QVBoxLayout, QWidget, QLineEdit
 from PyQt5.QtCore import pyqtSignal, Qt
 
 
@@ -17,6 +17,13 @@ class ContainerListWidget(QWidget):
         lbl.setStyleSheet("font-weight: bold; padding: 4px;")
         layout.addWidget(lbl)
 
+        self._filter_input = QLineEdit()
+        self._filter_input.setPlaceholderText("输入名称后回车过滤...")
+        self._filter_input.setClearButtonEnabled(True)
+        self._filter_input.returnPressed.connect(self._on_filter_changed)
+        self._filter_input.textChanged.connect(self._on_filter_text_changed)
+        layout.addWidget(self._filter_input)
+
         self._list = QListWidget()
         self._list.itemClicked.connect(self._on_clicked)
         layout.addWidget(self._list)
@@ -31,6 +38,7 @@ class ContainerListWidget(QWidget):
         """从 TokenEditor 填充容器列表。"""
         self._list.clear()
         self._container_names = []
+        self._filter_input.clear()
         if editor is None:
             return
 
@@ -62,6 +70,27 @@ class ContainerListWidget(QWidget):
             if modified:
                 txt = f"* {txt}"
             item.setText(txt)
+
+    def _on_filter_text_changed(self, text):
+        """输入框清空时自动恢复全部显示。"""
+        if not text.strip():
+            self._show_all()
+
+    def _on_filter_changed(self):
+        """输入文字后回车确认，过滤列表项。"""
+        text = self._filter_input.text().strip()
+        if not text:
+            self._show_all()
+            return
+        for i in range(self._list.count()):
+            item = self._list.item(i)
+            name = item.data(Qt.UserRole) or ''
+            item.setHidden(text.lower() not in name.lower())
+
+    def _show_all(self):
+        """显示所有列表项。"""
+        for i in range(self._list.count()):
+            self._list.item(i).setHidden(False)
 
     def _on_clicked(self, item):
         name = item.data(Qt.UserRole)
